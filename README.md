@@ -1,13 +1,18 @@
-# ElectricityConsumptionMonitor
+# Electricity Consumption & Bill Prediction System
 
-Static dashboard pages for an electricity consumption and bill prediction system.
+Python Streamlit app for predicting electricity consumption and estimated bills using the last three months of usage plus Pune weather forecast data.
 
 ## Run
 
-Open [index.html](/D:/All_Sebject_Assignments/PSDL/ElectricityConsumptionMonitor/index.html) in a browser.
+```powershell
+python -m pip install streamlit pandas plotly requests
+python -m streamlit run app.py
+```
 
 ## Included
 
-- Dashboard UI for consumption tracking and bill prediction
-- Local storage based sample data entry
-- Design reference in [docs/DESIGN.md](/D:/All_Sebject_Assignments/PSDL/ElectricityConsumptionMonitor/docs/DESIGN.md)
+- Streamlit UI
+- pandas data handling
+- Plotly visualizations
+- Pune 7-day forecast from Open-Meteo
+- Electricity bill prediction with slab pricing
