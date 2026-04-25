@@ -11,182 +11,222 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-  <div class="app-shell">
-    <header class="hero">
-      <div>
-        <p class="eyebrow">Smart Energy Dashboard</p>
-        <h1>Electricity Consumption &amp; Bill Prediction System</h1>
-        <p class="subtitle">Analyze, Predict, and Optimize Energy Usage</p>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="brand">
+        <span>⚡</span>
+        <div>
+          <strong>Energy AI</strong>
+          <small>Pune MSEDCL estimator</small>
+        </div>
       </div>
-      <div class="hero-badge">
-        <span class="bolt">⚡</span>
-        <span>Browser Based</span>
+      <nav class="side-nav" aria-label="Dashboard views">
+        <button class="nav-btn active" type="button" data-view="daily">Daily Consumption</button>
+        <button class="nav-btn" type="button" data-view="monthly">Monthly Consumption</button>
+        <button class="nav-btn" type="button" data-view="prediction">Prediction</button>
+      </nav>
+      <div class="tariff-note">
+        Uses Pune residential slab estimates with slab-wise fixed charges.
       </div>
-    </header>
+    </aside>
 
-    <main>
-      <section class="grid two-columns">
-        <article class="card input-card">
-          <div class="section-heading">
-            <div>
-              <p class="section-kicker">Input</p>
-              <h2>Add Consumption Data</h2>
+    <div class="app-shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Weather-Aware Energy Dashboard</p>
+          <h1>Electricity Consumption &amp; Bill Prediction System</h1>
+          <p class="subtitle">Track daily and monthly usage, then predict future bills using weather factors.</p>
+        </div>
+        <div class="hero-badge">
+          <span class="bolt">₹</span>
+          <span>MSEDCL Slabs</span>
+        </div>
+      </header>
+
+      <main>
+        <section class="grid two-columns">
+          <article class="card input-card view-panel active" id="dailyPanel">
+            <div class="section-heading">
+              <div>
+                <p class="section-kicker">Daily Input</p>
+                <h2>Daily Consumption</h2>
+              </div>
             </div>
-          </div>
-
-          <form id="entryForm" class="entry-form">
-            <div class="mode-switch" aria-label="Entry type">
+            <form id="dailyForm" class="entry-form">
               <label>
-                <input type="radio" name="entryType" value="daily" checked />
-                <span>Daily</span>
+                <span>Date</span>
+                <input id="dailyDate" type="date" required />
               </label>
               <label>
-                <input type="radio" name="entryType" value="monthly" />
-                <span>Monthly</span>
+                <span>Units consumed</span>
+                <input id="dailyUnits" type="number" min="0" step="0.01" placeholder="Example: 12" required />
               </label>
+              <div class="button-row">
+                <button class="btn primary" type="submit">Add Daily Data</button>
+                <button class="btn danger" type="button" data-clear="daily">Clear Daily</button>
+              </div>
+            </form>
+          </article>
+
+          <article class="card input-card view-panel" id="monthlyPanel">
+            <div class="section-heading">
+              <div>
+                <p class="section-kicker">Monthly Input</p>
+                <h2>Monthly Consumption</h2>
+              </div>
             </div>
+            <form id="monthlyForm" class="entry-form">
+              <label>
+                <span>Month</span>
+                <input id="monthlyMonth" type="month" required />
+              </label>
+              <label>
+                <span>Monthly units consumed</span>
+                <input id="monthlyUnits" type="number" min="0" step="0.01" placeholder="Example: 245" required />
+              </label>
+              <div class="button-row">
+                <button class="btn primary" type="submit">Add Monthly Data</button>
+                <button class="btn danger" type="button" data-clear="monthly">Clear Monthly</button>
+              </div>
+            </form>
+          </article>
 
-            <label id="dateField">
-              <span>Date</span>
-              <input id="dateInput" type="date" required />
-            </label>
-
-            <label id="monthField" class="hidden">
-              <span>Month</span>
-              <input id="monthInput" type="month" />
-            </label>
-
-            <label>
-              <span id="unitsLabel">Units consumed</span>
-              <input id="unitsInput" type="number" min="0" step="0.01" placeholder="Example: 135" required />
-            </label>
-
-            <div class="button-row">
-              <button class="btn primary" type="submit">Add Data</button>
-              <button class="btn ghost" type="button" id="sampleBtn">Load Sample Data</button>
-              <button class="btn danger" type="button" id="clearBtn">Clear Data</button>
+          <article class="card input-card view-panel" id="predictionPanel">
+            <div class="section-heading">
+              <div>
+                <p class="section-kicker">3-Month Forecast</p>
+                <h2>Prediction From Past 3 Months</h2>
+              </div>
             </div>
-          </form>
-        </article>
+            <form id="predictionForm" class="entry-form">
+              <div class="month-input-grid">
+                <label>
+                  <span>Month 1 units</span>
+                  <input id="monthOne" type="number" min="0" step="0.01" placeholder="Example: 210" required />
+                </label>
+                <label>
+                  <span>Month 2 units</span>
+                  <input id="monthTwo" type="number" min="0" step="0.01" placeholder="Example: 235" required />
+                </label>
+                <label>
+                  <span>Month 3 units</span>
+                  <input id="monthThree" type="number" min="0" step="0.01" placeholder="Example: 260" required />
+                </label>
+              </div>
+              <div class="formula-note">Weighted usage + trend growth + weather adjustment</div>
+              <div class="button-row">
+                <button class="btn primary" type="submit">Predict Bill</button>
+                <button class="btn danger" type="button" data-clear="prediction">Clear Prediction</button>
+              </div>
+            </form>
+          </article>
 
-        <article class="card insight-card">
-          <div class="section-heading">
-            <div>
-              <p class="section-kicker">Prediction</p>
-              <h2>Usage Intelligence</h2>
-            </div>
-          </div>
-          <p id="trendText" class="trend-text">Based on your recent usage trend, add data to generate a prediction.</p>
-          <div id="alerts" class="alerts"></div>
-          <ul class="suggestions">
-            <li>Reduce peak hour usage where possible.</li>
-            <li>Turn off unused appliances and standby devices.</li>
-            <li>Use efficient lighting and maintain high-load appliances.</li>
-          </ul>
-        </article>
-      </section>
-
-      <section class="summary-grid" aria-label="Summary dashboard">
-        <article class="metric-card">
-          <span>Total Units Consumed</span>
-          <strong id="totalUnits">0</strong>
-        </article>
-        <article class="metric-card">
-          <span>Estimated Bill</span>
-          <strong id="estimatedBill">₹0</strong>
-        </article>
-        <article class="metric-card">
-          <span>Predicted Units</span>
-          <strong id="predictedUnits">0</strong>
-        </article>
-        <article class="metric-card">
-          <span>Predicted Bill</span>
-          <strong id="predictedBill">₹0</strong>
-        </article>
-      </section>
-
-      <section class="grid chart-grid">
-        <article class="card chart-card">
-          <div class="section-heading">
-            <div>
-              <p class="section-kicker">Trend</p>
-              <h2>Daily Consumption</h2>
+          <article class="card insight-card">
+            <div class="section-heading">
+              <div>
+                <p class="section-kicker">Smart Insights</p>
+                <h2 id="insightTitle">Daily Weather Analysis</h2>
             </div>
           </div>
-          <div class="chart-wrap">
-            <canvas id="lineChart"></canvas>
-          </div>
-        </article>
+            <div class="weather-status">
+              <span id="temperatureText">Fetching Pune weather...</span>
+              <strong id="weatherMessage">Automatic weather adjustment will appear here.</strong>
+            </div>
+            <p id="trendText" class="trend-text">Add consumption and weather details to generate insights.</p>
+            <div id="alerts" class="alerts"></div>
+            <ul class="suggestions">
+              <li>Reduce AC, heater, and geyser usage during extreme weather.</li>
+              <li>Shift heavy appliance usage away from peak hours.</li>
+              <li>Track monthly slab jumps to avoid expensive high-unit billing.</li>
+            </ul>
+          </article>
+        </section>
 
-        <article class="card chart-card">
-          <div class="section-heading">
-            <div>
-              <p class="section-kicker">Comparison</p>
-              <h2>Units vs Period</h2>
-            </div>
-          </div>
-          <div class="chart-wrap">
-            <canvas id="barChart"></canvas>
-          </div>
-        </article>
-      </section>
+        <section class="summary-grid" aria-label="Summary dashboard">
+          <article class="metric-card">
+            <span id="totalLabel">Total Units</span>
+            <strong id="totalUnits">0</strong>
+          </article>
+          <article class="metric-card">
+            <span id="billLabel">Estimated Bill</span>
+            <strong id="estimatedBill">₹0</strong>
+          </article>
+          <article class="metric-card">
+            <span>Predicted Units</span>
+            <strong id="predictedUnits">0</strong>
+          </article>
+          <article class="metric-card">
+            <span>Predicted Bill</span>
+            <strong id="predictedBill">₹0</strong>
+          </article>
+        </section>
 
-      <section class="grid two-columns">
-        <article class="card comparison-card">
-          <div class="section-heading">
-            <div>
-              <p class="section-kicker">Recent History</p>
-              <h2>7-Period Comparison</h2>
+        <section class="grid chart-grid">
+          <article class="card chart-card">
+            <div class="section-heading">
+              <div>
+                <p class="section-kicker">Trend</p>
+                <h2 id="lineTitle">Daily Consumption Trend</h2>
+              </div>
             </div>
-          </div>
-          <div class="comparison-metrics">
-            <div>
-              <span>Previous 7 periods</span>
-              <strong id="previousSeven">0 units</strong>
+            <div class="chart-wrap">
+              <canvas id="lineChart"></canvas>
             </div>
-            <div>
-              <span>Last 7 periods</span>
-              <strong id="lastSeven">0 units</strong>
-            </div>
-            <div>
-              <span>Difference</span>
-              <strong id="sevenDiff">0 units</strong>
-            </div>
-            <div>
-              <span>Change</span>
-              <strong id="sevenPercent">0%</strong>
-            </div>
-          </div>
-        </article>
+          </article>
 
-        <article class="card table-card">
-          <div class="section-heading">
-            <div>
-              <p class="section-kicker">Records</p>
-              <h2>Consumption Table</h2>
+          <article class="card chart-card">
+            <div class="section-heading">
+              <div>
+                <p class="section-kicker">Comparison</p>
+                <h2 id="barTitle">Units Comparison</h2>
+              </div>
             </div>
-            <span id="recordCount" class="pill">0 entries</span>
-          </div>
-          <div id="emptyState" class="empty-state">No data yet. Add your first reading or load sample data.</div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Period</th>
-                  <th>Type</th>
-                  <th>Units</th>
-                </tr>
-              </thead>
-              <tbody id="dataTable"></tbody>
-            </table>
-          </div>
-        </article>
-      </section>
-    </main>
+            <div class="chart-wrap">
+              <canvas id="barChart"></canvas>
+            </div>
+          </article>
+        </section>
 
-    <footer>
-      Future scope: Integration with IoT smart meters and ML-based prediction
-    </footer>
+        <section class="grid two-columns">
+          <article class="card logic-card">
+            <div class="section-heading">
+              <div>
+                <p class="section-kicker">Bill Slabs</p>
+                <h2>Pune Residential Estimator</h2>
+              </div>
+            </div>
+            <div id="billBreakdown" class="breakdown"></div>
+          </article>
+
+          <article class="card table-card">
+            <div class="section-heading">
+              <div>
+                <p class="section-kicker">Records</p>
+                <h2 id="tableTitle">Daily Records</h2>
+              </div>
+              <span id="recordCount" class="pill">0 records</span>
+            </div>
+            <div id="emptyState" class="empty-state">No records yet.</div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Period</th>
+                    <th>Units</th>
+                    <th>Bill</th>
+                  </tr>
+                </thead>
+                <tbody id="dataTable"></tbody>
+              </table>
+            </div>
+          </article>
+        </section>
+      </main>
+
+      <footer>
+        Future scope: Integration with IoT smart meters and ML-based prediction
+      </footer>
+    </div>
   </div>
 
   <script src="script.js"></script>

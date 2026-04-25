@@ -1,198 +1,409 @@
-const STORAGE_KEY = "electricityConsumptionEntries";
+const STORAGE_KEY = "puneWeatherElectricityDashboard";
+const WEATHER_CITY = "Pune";
+const PUNE_LATITUDE = 18.5204;
+const PUNE_LONGITUDE = 73.8567;
 
-const form = document.getElementById("entryForm");
-const dateInput = document.getElementById("dateInput");
-const monthInput = document.getElementById("monthInput");
-const unitsInput = document.getElementById("unitsInput");
-const unitsLabel = document.getElementById("unitsLabel");
-const dateField = document.getElementById("dateField");
-const monthField = document.getElementById("monthField");
-const entryTypeInputs = document.querySelectorAll("input[name='entryType']");
-const sampleBtn = document.getElementById("sampleBtn");
-const clearBtn = document.getElementById("clearBtn");
+const state = loadState();
+let activeView = "daily";
+let weatherState = {
+  status: "loading",
+  city: WEATHER_CITY,
+  temperatureCelsius: null,
+  factor: 1,
+  label: "Fetching weather",
+  message: "Fetching Pune weather..."
+};
+let lineChart;
+let barChart;
+
+const navButtons = document.querySelectorAll(".nav-btn");
+const panels = {
+  daily: document.getElementById("dailyPanel"),
+  monthly: document.getElementById("monthlyPanel"),
+  prediction: document.getElementById("predictionPanel")
+};
+
+const dailyForm = document.getElementById("dailyForm");
+const monthlyForm = document.getElementById("monthlyForm");
+const predictionForm = document.getElementById("predictionForm");
+const alerts = document.getElementById("alerts");
+const trendText = document.getElementById("trendText");
 const dataTable = document.getElementById("dataTable");
 const emptyState = document.getElementById("emptyState");
 const recordCount = document.getElementById("recordCount");
-const alerts = document.getElementById("alerts");
-const trendText = document.getElementById("trendText");
+const billBreakdown = document.getElementById("billBreakdown");
 
 const totalUnitsEl = document.getElementById("totalUnits");
 const estimatedBillEl = document.getElementById("estimatedBill");
 const predictedUnitsEl = document.getElementById("predictedUnits");
 const predictedBillEl = document.getElementById("predictedBill");
-const previousSevenEl = document.getElementById("previousSeven");
-const lastSevenEl = document.getElementById("lastSeven");
-const sevenDiffEl = document.getElementById("sevenDiff");
-const sevenPercentEl = document.getElementById("sevenPercent");
+const insightTitle = document.getElementById("insightTitle");
+const tableTitle = document.getElementById("tableTitle");
+const lineTitle = document.getElementById("lineTitle");
+const barTitle = document.getElementById("barTitle");
+const totalLabel = document.getElementById("totalLabel");
+const billLabel = document.getElementById("billLabel");
 
-let entries = loadEntries();
-let lineChart;
-let barChart;
+const dailyDate = document.getElementById("dailyDate");
+const dailyUnits = document.getElementById("dailyUnits");
+const monthlyMonth = document.getElementById("monthlyMonth");
+const monthlyUnits = document.getElementById("monthlyUnits");
+const monthOne = document.getElementById("monthOne");
+const monthTwo = document.getElementById("monthTwo");
+const monthThree = document.getElementById("monthThree");
+const temperatureText = document.getElementById("temperatureText");
+const weatherMessage = document.getElementById("weatherMessage");
 
-dateInput.value = toDateInputValue(new Date());
-monthInput.value = toMonthInputValue(new Date());
+dailyDate.value = toDateInputValue(new Date());
+monthlyMonth.value = toMonthInputValue(new Date());
+fillPredictionForm();
 
-function loadEntries() {
+const MSEDCL_SLABS = [
+  { limit: 100, rate: 3.44, label: "0-100 units" },
+  { limit: 300, rate: 7.34, label: "101-300 units" },
+  { limit: 500, rate: 10.26, label: "301-500 units" },
+  { limit: Infinity, rate: 12.5, label: "Above 500 units" }
+];
+function loadState() {
   const saved = localStorage.getItem(STORAGE_KEY);
-  const parsed = saved ? JSON.parse(saved) : [];
-  return parsed.map((entry) => ({
-    ...entry,
-    periodType: entry.periodType || "daily"
-  }));
+  return saved ? JSON.parse(saved) : { daily: [], monthly: [], prediction: null };
 }
 
-function saveEntries() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
-}
-
-function getSelectedEntryType() {
-  return document.querySelector("input[name='entryType']:checked").value;
+function saveState() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
 function toDateInputValue(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function toMonthInputValue(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  return `${year}-${month}`;
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
 
-function formatPeriod(entry) {
-  if (entry.periodType === "monthly") {
-    return new Date(entry.date + "-01T00:00:00").toLocaleDateString("en-IN", {
-      month: "short",
-      year: "numeric"
-    });
-  }
-
-  return new Date(entry.date + "T00:00:00").toLocaleDateString("en-IN", {
+function formatDate(dateString) {
+  return new Date(`${dateString}T00:00:00`).toLocaleDateString("en-IN", {
     day: "2-digit",
     month: "short",
     year: "numeric"
   });
 }
 
-function getEntryDate(entry) {
-  return new Date((entry.periodType === "monthly" ? `${entry.date}-01` : entry.date) + "T00:00:00");
-}
-
-function formatUnits(value) {
-  return Number(value).toLocaleString("en-IN", {
-    maximumFractionDigits: 2
+function formatMonth(monthString) {
+  return new Date(`${monthString}-01T00:00:00`).toLocaleDateString("en-IN", {
+    month: "short",
+    year: "numeric"
   });
 }
 
-function calculateBill(units) {
-  // Progressive slab billing: each range is charged at its own rate.
-  if (units <= 100) return units * 3;
-  if (units <= 200) return 100 * 3 + (units - 100) * 5;
-  return 100 * 3 + 100 * 5 + (units - 200) * 8;
+function formatUnits(value) {
+  return Number(value).toLocaleString("en-IN", { maximumFractionDigits: 2 });
 }
 
-function sortEntries() {
-  entries.sort((a, b) => getEntryDate(a) - getEntryDate(b));
+function formatCurrency(value) {
+  return `₹${Number(value).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
 }
 
-function getTrend(recentEntries) {
-  if (recentEntries.length < 3) return "stable";
-
-  const midpoint = Math.ceil(recentEntries.length / 2);
-  const firstHalf = recentEntries.slice(0, midpoint);
-  const secondHalf = recentEntries.slice(midpoint);
-  const firstAverage = average(firstHalf.map((entry) => entry.units));
-  const secondAverage = average(secondHalf.map((entry) => entry.units));
-  const difference = secondAverage - firstAverage;
-
-  if (Math.abs(difference) <= Math.max(firstAverage * 0.05, 3)) return "stable";
-  return difference > 0 ? "increasing" : "decreasing";
+function getWeatherDetails() {
+  return weatherState;
 }
 
-function average(values) {
-  if (!values.length) return 0;
-  return values.reduce((sum, value) => sum + value, 0) / values.length;
-}
-
-function predictUsage() {
-  // Moving average gives a realistic baseline using only browser-side logic.
-  if (!entries.length) {
-    return { units: 0, bill: 0, trend: "stable", baseline: 0 };
+function getWeatherFromTemperature(temperatureCelsius, city = WEATHER_CITY) {
+  if (temperatureCelsius > 30) {
+    return {
+      status: "ready",
+      city,
+      temperatureCelsius,
+      factor: 1.2,
+      label: "Hot weather",
+      icon: "🌡️",
+      message: "Hot weather → usage may increase"
+    };
   }
 
-  const latestType = entries[entries.length - 1].periodType;
-  const predictionEntries = entries.filter((entry) => entry.periodType === latestType);
-  const recentEntries = predictionEntries.slice(-7);
-  const movingAverageEntries = predictionEntries.slice(-5);
-  const baseline = average(movingAverageEntries.map((entry) => entry.units));
-  const trend = getTrend(recentEntries);
-  let predictedUnits = baseline;
-
-  if (trend === "increasing") predictedUnits *= 1.1;
-  if (trend === "decreasing") predictedUnits *= 0.9;
-
-  predictedUnits = Math.max(0, predictedUnits);
+  if (temperatureCelsius < 20) {
+    return {
+      status: "ready",
+      city,
+      temperatureCelsius,
+      factor: 1.1,
+      label: "Cold weather",
+      icon: "🌡️",
+      message: "Cold weather → usage may increase"
+    };
+  }
 
   return {
-    units: predictedUnits,
-    bill: calculateBill(predictedUnits),
-    trend,
-    baseline,
-    periodType: latestType
+    status: "ready",
+    city,
+    temperatureCelsius,
+    factor: 1,
+    label: "Normal weather",
+    icon: "🌡️",
+    message: "Normal weather → no extra adjustment"
   };
 }
 
-function getHighestUsage() {
-  return entries.reduce(
-    (highest, entry) => (entry.units > highest.units ? entry : highest),
-    { units: -Infinity, date: "" }
-  );
+async function fetchCurrentWeather() {
+  try {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${PUNE_LATITUDE}&longitude=${PUNE_LONGITUDE}&current=temperature_2m`;
+    const response = await fetch(url);
+    if (!response.ok) throw new Error("Weather request failed");
+
+    const data = await response.json();
+    const temperatureCelsius = data.current.temperature_2m;
+    weatherState = getWeatherFromTemperature(temperatureCelsius, WEATHER_CITY);
+    refreshStoredPrediction();
+  } catch (error) {
+    weatherState = {
+      status: "error",
+      city: WEATHER_CITY,
+      temperatureCelsius: null,
+      factor: 1,
+      label: "Weather unavailable",
+      icon: "🌡️",
+      message: "Could not fetch Pune weather right now. Prediction is shown without weather adjustment."
+    };
+  }
+
+  render();
 }
 
-function getLatestTypeEntries() {
-  if (!entries.length) return [];
-  const latestType = entries[entries.length - 1].periodType;
-  return entries.filter((entry) => entry.periodType === latestType);
+function calculateBill(units) {
+  let remaining = Math.max(0, units);
+  let previousLimit = 0;
+  let energyCharge = 0;
+  const lines = [];
+
+  for (const slab of MSEDCL_SLABS) {
+    if (remaining <= 0) break;
+    const slabUnits = Math.min(remaining, slab.limit - previousLimit);
+    const charge = slabUnits * slab.rate;
+    energyCharge += charge;
+    lines.push({ ...slab, units: slabUnits, charge });
+    remaining -= slabUnits;
+    previousLimit = slab.limit;
+  }
+
+  const fixedCharge = getFixedCharge(units);
+  const total = energyCharge + fixedCharge;
+  return { energyCharge, fixedCharge, total, lines };
 }
 
-function updateSummary() {
-  const totalUnits = entries.reduce((sum, entry) => sum + entry.units, 0);
-  const estimatedBill = calculateBill(totalUnits);
-  const prediction = predictUsage();
-
-  totalUnitsEl.textContent = formatUnits(totalUnits);
-  estimatedBillEl.textContent = `₹${formatUnits(estimatedBill)}`;
-  predictedUnitsEl.textContent = formatUnits(prediction.units);
-  predictedBillEl.textContent = `₹${formatUnits(prediction.bill)}`;
-
-  trendText.textContent = entries.length
-    ? `Based on your recent ${prediction.periodType} usage trend, the next period may use about ${formatUnits(prediction.units)} units with an estimated bill of ₹${formatUnits(prediction.bill)}.`
-    : "Based on your recent usage trend, add data to generate a prediction.";
+function getFixedCharge(units) {
+  if (units <= 100) return 95;
+  if (units <= 300) return 120;
+  return 170;
 }
 
-function updateAlerts() {
+function addOrUpdateRecord(collection, record, key) {
+  const index = collection.findIndex((item) => item[key] === record[key]);
+  if (index >= 0) collection[index] = record;
+  else collection.push(record);
+}
+
+function sortRecords() {
+  state.daily.sort((a, b) => new Date(a.date) - new Date(b.date));
+  state.monthly.sort((a, b) => new Date(`${a.month}-01`) - new Date(`${b.month}-01`));
+}
+
+function predictFromThreeMonths(m1, m2, m3) {
+  const weatherDetails = getWeatherDetails();
+  const weighted = m1 * 0.2 + m2 * 0.3 + m3 * 0.5;
+  const growth = ((m2 - m1) + (m3 - m2)) / 2;
+  const trendPrediction = m3 + growth;
+  const basePrediction = (weighted + trendPrediction) / 2;
+  const predictedUnits = Math.max(0, basePrediction * weatherDetails.factor);
+  const bill = calculateBill(predictedUnits);
+
+  return {
+    months: [m1, m2, m3],
+    temperatureCelsius: weatherDetails.temperatureCelsius,
+    weighted,
+    growth,
+    trendPrediction,
+    basePrediction,
+    predictedUnits,
+    predictedBill: bill.total,
+    trend: getTrend([m1, m2, m3]),
+    createdAt: new Date().toISOString()
+  };
+}
+
+function refreshStoredPrediction() {
+  if (!state.prediction) return;
+  const [m1, m2, m3] = state.prediction.months;
+  state.prediction = predictFromThreeMonths(m1, m2, m3);
+}
+
+function getTrend(values) {
+  if (values.length < 2) return "stable";
+  const first = values[0];
+  const last = values[values.length - 1];
+  const threshold = Math.max(first * 0.05, 2);
+  if (last - first > threshold) return "increasing";
+  if (first - last > threshold) return "decreasing";
+  return "stable";
+}
+
+function fillPredictionForm() {
+  if (!state.prediction) return;
+  monthOne.value = state.prediction.months[0];
+  monthTwo.value = state.prediction.months[1];
+  monthThree.value = state.prediction.months[2];
+}
+
+function switchView(view) {
+  activeView = view;
+  navButtons.forEach((button) => button.classList.toggle("active", button.dataset.view === view));
+  Object.entries(panels).forEach(([name, panel]) => panel.classList.toggle("active", name === view));
+  render();
+}
+
+function render() {
+  sortRecords();
+  saveState();
+  const viewData = getViewData();
+
+  totalLabel.textContent = activeView === "prediction" ? "Past 3-Month Units" : "Total Units";
+  billLabel.textContent = activeView === "prediction" ? "Past Units Bill" : "Estimated Bill";
+  insightTitle.textContent = viewData.title;
+  tableTitle.textContent = viewData.tableTitle;
+  lineTitle.textContent = viewData.lineTitle;
+  barTitle.textContent = viewData.barTitle;
+
+  totalUnitsEl.textContent = formatUnits(viewData.totalUnits);
+  estimatedBillEl.textContent = formatCurrency(viewData.bill.total);
+  predictedUnitsEl.textContent = formatUnits(viewData.predictedUnits);
+  predictedBillEl.textContent = formatCurrency(viewData.predictedBill);
+  trendText.textContent = viewData.trendText;
+  renderWeatherStatus();
+
+  renderAlerts(viewData);
+  renderBreakdown(viewData.bill);
+  renderTable(viewData.rows);
+  updateCharts(viewData.chartLabels, viewData.chartValues);
+  animateMetrics();
+}
+
+function getViewData() {
+  if (activeView === "monthly") return getMonthlyViewData();
+  if (activeView === "prediction") return getPredictionViewData();
+  return getDailyViewData();
+}
+
+function getDailyViewData() {
+  const rows = state.daily.map((record) => ({
+    period: formatDate(record.date),
+    units: record.units,
+    bill: calculateBill(record.units * 30).total
+  }));
+  const totalUnits = state.daily.reduce((sum, record) => sum + record.units, 0);
+  const average = state.daily.length ? totalUnits / state.daily.length : 0;
+  const predictedUnits = average * 30 * getWeatherDetails().factor;
+
+  return {
+    title: "Daily Weather Analysis",
+    tableTitle: "Daily Records",
+    lineTitle: "Daily Consumption Trend",
+    barTitle: "Daily Units Comparison",
+    rows,
+    chartLabels: state.daily.map((record) => formatDate(record.date)),
+    chartValues: state.daily.map((record) => record.units),
+    totalUnits,
+    bill: calculateBill(totalUnits * 30),
+    predictedUnits,
+    predictedBill: calculateBill(predictedUnits).total,
+    trend: getTrend(state.daily.map((record) => record.units)),
+    trendText: state.daily.length
+      ? `Daily records are converted to a monthly estimate and adjusted using current Pune temperature.`
+      : "Add daily units to estimate monthly bill impact using automatic Pune weather."
+  };
+}
+
+function getMonthlyViewData() {
+  const rows = state.monthly.map((record) => ({
+    period: formatMonth(record.month),
+    units: record.units,
+    bill: calculateBill(record.units).total
+  }));
+  const totalUnits = state.monthly.reduce((sum, record) => sum + record.units, 0);
+  const average = state.monthly.length ? totalUnits / state.monthly.length : 0;
+  const predictedUnits = average * getWeatherDetails().factor;
+
+  return {
+    title: "Monthly Weather Analysis",
+    tableTitle: "Monthly Records",
+    lineTitle: "Monthly Consumption Trend",
+    barTitle: "Monthly Units Comparison",
+    rows,
+    chartLabels: state.monthly.map((record) => formatMonth(record.month)),
+    chartValues: state.monthly.map((record) => record.units),
+    totalUnits,
+    bill: calculateBill(totalUnits),
+    predictedUnits,
+    predictedBill: calculateBill(predictedUnits).total,
+    trend: getTrend(state.monthly.map((record) => record.units)),
+    trendText: state.monthly.length
+      ? `Monthly average is adjusted using current Pune temperature.`
+      : "Add monthly units to estimate next month using automatic Pune weather."
+  };
+}
+
+function getPredictionViewData() {
+  const data = state.prediction;
+  if (!data) {
+    return {
+      title: "3-Month Prediction",
+      tableTitle: "Prediction Inputs",
+      lineTitle: "3-Month Prediction Trend",
+      barTitle: "Past Units vs Prediction",
+      rows: [],
+      chartLabels: ["Month 1", "Month 2", "Month 3", "Predicted"],
+      chartValues: [0, 0, 0, 0],
+      totalUnits: 0,
+      bill: calculateBill(0),
+      predictedUnits: 0,
+      predictedBill: 0,
+      trend: "stable",
+      trendText: "Enter the last 3 months to predict the next month using automatic Pune weather."
+    };
+  }
+
+  const rows = data.months.map((units, index) => ({
+    period: `Month ${index + 1}`,
+    units,
+    bill: calculateBill(units).total
+  }));
+  const totalUnits = data.months.reduce((sum, units) => sum + units, 0);
+
+  return {
+    title: "3-Month Weather Prediction",
+    tableTitle: "Prediction Inputs",
+    lineTitle: "3-Month Prediction Trend",
+    barTitle: "Past Units vs Prediction",
+    rows,
+    chartLabels: ["Month 1", "Month 2", "Month 3", "Predicted"],
+    chartValues: [...data.months, data.predictedUnits],
+    totalUnits,
+    bill: calculateBill(totalUnits),
+    predictedUnits: data.predictedUnits,
+    predictedBill: data.predictedBill,
+    trend: data.trend,
+    trendText: `Based on weighted usage, trend growth, and current Pune weather, next month may use ${formatUnits(data.predictedUnits)} units.`
+  };
+}
+
+function renderAlerts(viewData) {
   alerts.innerHTML = "";
+  const weather = getWeatherDetails();
+  const weatherType = weather.factor > 1 ? "warning" : "success";
+  addAlert(`${weather.icon} ${weather.message}`, weatherType);
 
-  if (!entries.length) {
-    addAlert("✅ Stable usage: add readings to start tracking trends.", "success");
-    return;
-  }
-
-  const comparableEntries = getLatestTypeEntries();
-  const latest = comparableEntries[comparableEntries.length - 1];
-  const avgUnits = average(comparableEntries.map((entry) => entry.units));
-  const trend = predictUsage().trend;
-
-  if (latest.units > avgUnits) {
-    addAlert(`⚠️ High usage detected: latest reading is above your average of ${formatUnits(avgUnits)} units.`, "warning");
-  }
-
-  if (trend === "increasing") addAlert("📈 Consumption increasing: recent readings are moving upward.", "warning");
-  if (trend === "decreasing") addAlert("📉 Consumption decreasing: recent readings show improvement.", "success");
-  if (trend === "stable") addAlert("✅ Stable usage: your recent readings are consistent.", "success");
+  if (viewData.predictedUnits > 300) addAlert("⚠️ High usage alert: prediction may enter expensive MSEDCL slabs.", "warning");
+  if (viewData.trend === "increasing") addAlert("📈 Increasing trend detected in recent usage.", "warning");
+  else if (viewData.trend === "decreasing") addAlert("📉 Decreasing trend detected in recent usage.", "success");
+  else addAlert("✅ Stable usage trend.", "success");
 }
 
 function addAlert(message, type) {
@@ -202,59 +413,53 @@ function addAlert(message, type) {
   alerts.appendChild(item);
 }
 
-function updateComparison() {
-  // Compare the most recent seven matching periods against the seven before them.
-  const comparableEntries = getLatestTypeEntries();
-  const lastSeven = comparableEntries.slice(-7);
-  const previousSeven = comparableEntries.slice(-14, -7);
-  const lastTotal = lastSeven.reduce((sum, entry) => sum + entry.units, 0);
-  const previousTotal = previousSeven.reduce((sum, entry) => sum + entry.units, 0);
-  const difference = lastTotal - previousTotal;
-  const percent = previousTotal ? (difference / previousTotal) * 100 : 0;
-  const arrow = difference > 0 ? "↑" : difference < 0 ? "↓" : "→";
-  const className = difference > 0 ? "positive" : difference < 0 ? "negative" : "";
+function renderBreakdown(bill) {
+  billBreakdown.innerHTML = "";
+  const activeLines = bill.lines.length ? bill.lines : [{ label: "0 units", units: 0, rate: 0, charge: 0 }];
 
-  previousSevenEl.textContent = `${formatUnits(previousTotal)} units`;
-  lastSevenEl.textContent = `${formatUnits(lastTotal)} units`;
-  sevenDiffEl.textContent = `${arrow} ${formatUnits(Math.abs(difference))} units`;
-  sevenPercentEl.textContent = `${arrow} ${Math.abs(percent).toFixed(1)}%`;
-  sevenDiffEl.className = className;
-  sevenPercentEl.className = className;
+  activeLines.forEach((line) => {
+    const item = document.createElement("div");
+    item.innerHTML = `<span>${line.label}</span><strong>${formatUnits(line.units)} x ₹${line.rate} = ${formatCurrency(line.charge)}</strong>`;
+    billBreakdown.appendChild(item);
+  });
+
+  const fixed = document.createElement("div");
+  fixed.innerHTML = `<span>Fixed charge</span><strong>${formatCurrency(bill.fixedCharge)}</strong>`;
+  billBreakdown.appendChild(fixed);
+
 }
 
-function renderTable() {
+function renderTable(rows) {
   dataTable.innerHTML = "";
-  recordCount.textContent = `${entries.length} ${entries.length === 1 ? "entry" : "entries"}`;
-  emptyState.classList.toggle("show", entries.length === 0);
+  emptyState.classList.toggle("show", rows.length === 0);
+  recordCount.textContent = `${rows.length} ${rows.length === 1 ? "record" : "records"}`;
 
-  entries.forEach((entry) => {
-    const row = document.createElement("tr");
-    row.innerHTML = `
-      <td>${formatPeriod(entry)}</td>
-      <td>${entry.periodType === "monthly" ? "Monthly" : "Daily"}</td>
-      <td>${formatUnits(entry.units)}</td>
+  rows.forEach((row) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${row.period}</td>
+      <td>${formatUnits(row.units)}</td>
+      <td>${formatCurrency(row.bill)}</td>
     `;
-    dataTable.appendChild(row);
+    dataTable.appendChild(tr);
   });
 }
 
-function chartColors() {
-  const highest = getHighestUsage();
-  return entries.map((entry) => (entry.date === highest.date && entry.units === highest.units ? "#f4a62a" : "#16a878"));
+function renderWeatherStatus() {
+  const weather = getWeatherDetails();
+  if (weather.temperatureCelsius === null) {
+    temperatureText.textContent = "🌡️ Pune weather unavailable";
+  } else {
+    temperatureText.textContent = `🌡️ ${Math.round(weather.temperatureCelsius)}°C in ${weather.city}`;
+  }
+  weatherMessage.textContent = weather.message;
 }
 
-function updateCharts() {
-  // The highest usage period is colored differently in both charts.
-  const labels = entries.map((entry) => formatPeriod(entry));
-  const values = entries.map((entry) => entry.units);
-  const colors = chartColors();
-
+function updateCharts(labels, values) {
+  const colors = values.map((_, index) => (index === values.length - 1 && activeView === "prediction" ? "#f4a62a" : "#16a878"));
   const tooltipCallbacks = {
     label(context) {
-      const value = context.raw;
-      const highest = getHighestUsage();
-      const suffix = value === highest.units ? " • Highest usage period" : "";
-      return `${formatUnits(value)} units${suffix}`;
+      return `${context.dataset.label}: ${formatUnits(context.raw)} units`;
     }
   };
 
@@ -264,7 +469,7 @@ function updateCharts() {
       data: {
         labels,
         datasets: [{
-          label: "Daily Units",
+          label: "Units",
           data: values,
           borderColor: "#1769e0",
           backgroundColor: "rgba(23, 105, 224, 0.12)",
@@ -290,12 +495,7 @@ function updateCharts() {
       type: "bar",
       data: {
         labels,
-        datasets: [{
-          label: "Units",
-          data: values,
-          backgroundColor: colors,
-          borderRadius: 10
-        }]
+        datasets: [{ label: "Units", data: values, backgroundColor: colors, borderRadius: 8 }]
       },
       options: getChartOptions(tooltipCallbacks)
     });
@@ -312,30 +512,12 @@ function getChartOptions(tooltipCallbacks) {
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
-      legend: {
-        labels: {
-          color: "#17324d",
-          font: { family: "Poppins", weight: 600 }
-        }
-      },
-      tooltip: {
-        callbacks: tooltipCallbacks,
-        backgroundColor: "#17324d",
-        padding: 12,
-        titleFont: { family: "Poppins", weight: 700 },
-        bodyFont: { family: "Poppins" }
-      }
+      legend: { labels: { color: "#17324d", font: { family: "Poppins", weight: 600 } } },
+      tooltip: { callbacks: tooltipCallbacks, backgroundColor: "#17324d", padding: 12 }
     },
     scales: {
-      x: {
-        ticks: { color: "#677b8f", maxRotation: 45, minRotation: 0 },
-        grid: { display: false }
-      },
-      y: {
-        beginAtZero: true,
-        ticks: { color: "#677b8f" },
-        grid: { color: "rgba(103, 123, 143, 0.14)" }
-      }
+      x: { ticks: { color: "#677b8f" }, grid: { display: false } },
+      y: { beginAtZero: true, ticks: { color: "#677b8f" }, grid: { color: "rgba(103, 123, 143, 0.14)" } }
     }
   };
 }
@@ -347,102 +529,48 @@ function animateMetrics() {
   });
 }
 
-function updateUI() {
-  sortEntries();
-  saveEntries();
-  updateSummary();
-  updateAlerts();
-  updateComparison();
-  renderTable();
-  updateCharts();
-  animateMetrics();
-}
-
-function addEntry(date, units, periodType) {
-  const existing = entries.find((entry) => entry.date === date && entry.periodType === periodType);
-
-  if (existing) {
-    existing.units = units;
-  } else {
-    entries.push({ date, units, periodType });
-  }
-
-  updateUI();
-}
-
-function generateSampleData() {
-  const today = new Date();
-  const selectedType = getSelectedEntryType();
-
-  if (selectedType === "monthly") {
-    const monthlyUnits = [2480, 2615, 2730, 2685, 2810, 2965, 3075, 3190, 3325, 3450];
-
-    entries = monthlyUnits.map((units, index) => {
-      const date = new Date(today.getFullYear(), today.getMonth() - (monthlyUnits.length - index - 1), 1);
-
-      return {
-        date: toMonthInputValue(date),
-        units,
-        periodType: "monthly"
-      };
-    });
-
-    updateUI();
-    return;
-  }
-
-  const sampleUnits = [82, 91, 96, 108, 118, 126, 121, 134, 142, 136, 151, 158, 149, 166];
-
-  entries = sampleUnits.map((units, index) => {
-    const date = new Date(today);
-    date.setDate(today.getDate() - (sampleUnits.length - index - 1));
-
-    return {
-      date: toDateInputValue(date),
-      units,
-      periodType: "daily"
-    };
-  });
-
-  updateUI();
-}
-
-form.addEventListener("submit", (event) => {
+dailyForm.addEventListener("submit", (event) => {
   event.preventDefault();
-
-  const periodType = getSelectedEntryType();
-  const date = periodType === "monthly" ? monthInput.value : dateInput.value;
-  const units = Number(unitsInput.value);
-
-  if (!date || Number.isNaN(units) || units < 0) return;
-
-  addEntry(date, units, periodType);
-  unitsInput.value = "";
-  unitsInput.focus();
+  const units = Number(dailyUnits.value);
+  if (Number.isNaN(units) || units < 0) return;
+  addOrUpdateRecord(state.daily, { date: dailyDate.value, units }, "date");
+  dailyUnits.value = "";
+  render();
 });
 
-sampleBtn.addEventListener("click", generateSampleData);
-
-clearBtn.addEventListener("click", () => {
-  if (!entries.length) return;
-  const confirmed = window.confirm("Clear all saved consumption data?");
-  if (!confirmed) return;
-
-  entries = [];
-  updateUI();
+monthlyForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const units = Number(monthlyUnits.value);
+  if (Number.isNaN(units) || units < 0) return;
+  addOrUpdateRecord(state.monthly, { month: monthlyMonth.value, units }, "month");
+  monthlyUnits.value = "";
+  render();
 });
 
-entryTypeInputs.forEach((input) => {
-  input.addEventListener("change", () => {
-    const isMonthly = getSelectedEntryType() === "monthly";
+predictionForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const values = [Number(monthOne.value), Number(monthTwo.value), Number(monthThree.value)];
+  if (values.some((value) => Number.isNaN(value) || value < 0)) return;
+  state.prediction = predictFromThreeMonths(values[0], values[1], values[2]);
+  render();
+});
 
-    dateField.classList.toggle("hidden", isMonthly);
-    monthField.classList.toggle("hidden", !isMonthly);
-    dateInput.required = !isMonthly;
-    monthInput.required = isMonthly;
-    unitsLabel.textContent = isMonthly ? "Monthly units consumed" : "Units consumed";
-    unitsInput.placeholder = isMonthly ? "Example: 2850" : "Example: 135";
+document.querySelectorAll("[data-clear]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const target = button.dataset.clear;
+    if (target === "daily") state.daily = [];
+    if (target === "monthly") state.monthly = [];
+    if (target === "prediction") {
+      state.prediction = null;
+      predictionForm.reset();
+    }
+    render();
   });
 });
 
-updateUI();
+navButtons.forEach((button) => {
+  button.addEventListener("click", () => switchView(button.dataset.view));
+});
+
+render();
+fetchCurrentWeather();
