@@ -1,0 +1,10 @@
+{
+  "name": "electricity-consumption-monitor",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Static dashboard for electricity consumption and bill prediction.",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js"
+  }
+}

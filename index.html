@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html class="light" lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+  <title>Electricity Consumption Monitor</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
+    rel="stylesheet"
+  />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
+    rel="stylesheet"
+  />
+  <script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            "surface-bright": "#f8f9ff",
+            "tertiary-container": "#0074a6",
+            "on-secondary-fixed-variant": "#005321",
+            "on-primary-fixed-variant": "#003ea8",
+            "surface-container-high": "#dce9ff",
+            "primary-fixed-dim": "#b4c5ff",
+            "surface-variant": "#d3e4fe",
+            primary: "#004ac6",
+            "tertiary-fixed-dim": "#89ceff",
+            "on-background": "#0b1c30",
+            "on-primary": "#ffffff",
+            "surface-container": "#e5eeff",
+            secondary: "#006e2f",
+            background: "#f8f9ff",
+            "on-tertiary-fixed-variant": "#004c6e",
+            tertiary: "#005a82",
+            outline: "#737686",
+            "on-tertiary-fixed": "#001e2f",
+            "on-surface": "#0b1c30",
+            error: "#ba1a1a",
+            "on-error": "#ffffff",
+            "inverse-on-surface": "#eaf1ff",
+            "on-error-container": "#93000a",
+            "outline-variant": "#c3c6d7",
+            "surface-container-highest": "#d3e4fe",
+            "inverse-surface": "#213145",
+            "on-secondary-fixed": "#002109",
+            "tertiary-fixed": "#c9e6ff",
+            "primary-fixed": "#dbe1ff",
+            "secondary-fixed-dim": "#4ae176",
+            "on-secondary-container": "#007432",
+            "surface-container-low": "#eff4ff",
+            "inverse-primary": "#b4c5ff",
+            "primary-container": "#2563eb",
+            "surface-tint": "#0053db",
+            "surface-dim": "#cbdbf5",
+            surface: "#f8f9ff",
+            "secondary-fixed": "#6bff8f",
+            "on-primary-container": "#eeefff",
+            "on-primary-fixed": "#00174b",
+            "on-secondary": "#ffffff",
+            "on-surface-variant": "#434655",
+            "secondary-container": "#6bff8f",
+            "on-tertiary": "#ffffff",
+            "on-tertiary-container": "#e4f2ff",
+            "error-container": "#ffdad6",
+            "surface-container-lowest": "#ffffff"
+          },
+          borderRadius: {
+            DEFAULT: "0.25rem",
+            lg: "0.5rem",
+            xl: "0.75rem",
+            full: "9999px"
+          },
+          spacing: {
+            md: "16px",
+            xs: "4px",
+            base: "4px",
+            xl: "32px",
+            "container-margin": "24px",
+            gutter: "16px",
+            sm: "8px",
+            lg: "24px"
+          },
+          fontFamily: {
+            h1: ["Inter", "sans-serif"],
+            "label-caps": ["Inter", "sans-serif"],
+            "body-md": ["Inter", "sans-serif"],
+            "body-lg": ["Inter", "sans-serif"],
+            h2: ["Inter", "sans-serif"],
+            "data-display": ["Inter", "sans-serif"],
+            h3: ["Inter", "sans-serif"]
+          },
+          fontSize: {
+            h1: ["32px", { lineHeight: "1.2", letterSpacing: "-0.02em", fontWeight: "700" }],
+            "label-caps": ["12px", { lineHeight: "1.2", letterSpacing: "0.05em", fontWeight: "600" }],
+            "body-md": ["14px", { lineHeight: "1.5", letterSpacing: "0", fontWeight: "400" }],
+            "body-lg": ["16px", { lineHeight: "1.6", letterSpacing: "0", fontWeight: "400" }],
+            h2: ["24px", { lineHeight: "1.3", letterSpacing: "-0.01em", fontWeight: "600" }],
+            "data-display": ["36px", { lineHeight: "1.1", letterSpacing: "-0.03em", fontWeight: "700" }],
+            h3: ["20px", { lineHeight: "1.4", letterSpacing: "-0.01em", fontWeight: "600" }]
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    body {
+      background-color: #f8f9ff;
+      font-family: "Inter", sans-serif;
+    }
+
+    .ambient-shadow {
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+    }
+
+    .glass-card {
+      background: rgba(255, 255, 255, 0.8);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(226, 232, 240, 0.8);
+    }
+
+    .material-symbols-outlined {
+      font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
+    }
+  </style>
+</head>
+<body class="text-on-surface">
+  <header class="sticky top-0 z-50 flex h-16 w-full items-center justify-between border-b border-slate-200 bg-white px-6 shadow-sm antialiased dark:bg-slate-900">
+    <div class="flex items-center gap-4">
+      <span class="text-xl font-bold tracking-tight text-slate-900 dark:text-white">Electricity Monitor</span>
+      <nav class="ml-8 hidden gap-6 md:flex">
+        <a class="border-b-2 border-blue-600 pb-1 font-body-md text-blue-600 dark:border-blue-400 dark:text-blue-400" href="#">Dashboard</a>
+        <a class="font-body-md text-slate-500 transition-colors hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100" href="#">History</a>
+        <a class="font-body-md text-slate-500 transition-colors hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100" href="#">Predictions</a>
+        <a class="font-body-md text-slate-500 transition-colors hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100" href="#">Alerts</a>
+      </nav>
+    </div>
+    <div class="flex items-center gap-4">
+      <button class="rounded-full p-2 text-slate-600 transition-colors hover:bg-slate-50" type="button">
+        <span class="material-symbols-outlined">notifications</span>
+      </button>
+      <button class="rounded-full p-2 text-slate-600 transition-colors hover:bg-slate-50" type="button">
+        <span class="material-symbols-outlined">settings</span>
+      </button>
+      <div class="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full border border-slate-300 bg-slate-200 text-xs font-bold text-slate-700">
+        EM
+      </div>
+    </div>
+  </header>
+
+  <aside class="fixed left-0 top-16 z-40 hidden h-[calc(100vh-64px)] w-64 flex-col gap-2 border-r border-slate-200 bg-white p-4 text-sm font-medium lg:flex">
+    <div class="mb-6 px-2">
+      <h4 class="text-lg font-black text-blue-600">Energy Monitor</h4>
+      <p class="text-xs text-slate-500">Facility 01</p>
+    </div>
+    <div class="flex flex-col gap-1">
+      <a class="flex items-center gap-3 rounded-lg bg-blue-50 px-3 py-2 text-blue-700 transition-transform duration-200 hover:translate-x-1" href="#">
+        <span class="material-symbols-outlined">dashboard</span>
+        <span>Overview</span>
+      </a>
+      <a class="flex items-center gap-3 rounded-lg px-3 py-2 text-slate-600 transition-transform duration-200 hover:translate-x-1 hover:bg-slate-50" href="#">
+        <span class="material-symbols-outlined">bolt</span>
+        <span>Consumption</span>
+      </a>
+      <a class="flex items-center gap-3 rounded-lg px-3 py-2 text-slate-600 transition-transform duration-200 hover:translate-x-1 hover:bg-slate-50" href="#">
+        <span class="material-symbols-outlined">payments</span>
+        <span>Billing</span>
+      </a>
+      <a class="flex items-center gap-3 rounded-lg px-3 py-2 text-slate-600 transition-transform duration-200 hover:translate-x-1 hover:bg-slate-50" href="#">
+        <span class="material-symbols-outlined">insights</span>
+        <span>Insights</span>
+      </a>
+      <a class="flex items-center gap-3 rounded-lg px-3 py-2 text-slate-600 transition-transform duration-200 hover:translate-x-1 hover:bg-slate-50" href="#">
+        <span class="material-symbols-outlined">settings</span>
+        <span>Settings</span>
+      </a>
+    </div>
+    <button class="mt-auto mx-2 flex items-center justify-center gap-2 rounded-lg bg-primary py-3 font-semibold text-on-primary transition-all hover:opacity-90" type="button">
+      <span class="material-symbols-outlined text-sm">download</span>
+      Export Report
+    </button>
+  </aside>
+
+  <main class="min-h-screen bg-surface-bright p-lg lg:ml-64">
+    <section class="mb-xl">
+      <h1 class="mb-xs font-h1 text-h1 text-on-surface">Electricity Consumption &amp; Bill Prediction System</h1>
+      <p class="font-body-lg text-body-lg text-on-surface-variant">Analyze, predict, and optimize energy usage.</p>
+    </section>
+
+    <div class="mb-xl grid grid-cols-1 gap-lg md:grid-cols-2 lg:grid-cols-4">
+      <div class="rounded-xl border border-outline-variant/30 bg-surface-container-lowest p-lg shadow-[0_4px_12px_rgba(0,0,0,0.05)] transition-all hover:shadow-[0_8px_20px_rgba(0,0,0,0.08)]">
+        <div class="mb-sm flex items-start justify-between">
+          <span class="font-label-caps text-label-caps uppercase text-on-surface-variant">Total Units Consumed</span>
+          <span class="material-symbols-outlined text-primary">bolt</span>
+        </div>
+        <div class="flex flex-col">
+          <span class="font-data-display text-data-display text-on-surface" id="total-units">1,240</span>
+          <div class="mt-xs flex items-center gap-1 text-xs font-semibold text-secondary">
+            <span class="material-symbols-outlined text-sm">trending_up</span>
+            <span>+12% vs last month</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="rounded-xl border border-outline-variant/30 bg-surface-container-lowest p-lg shadow-[0_4px_12px_rgba(0,0,0,0.05)] transition-all hover:shadow-[0_8px_20px_rgba(0,0,0,0.08)]">
+        <div class="mb-sm flex items-start justify-between">
+          <span class="font-label-caps text-label-caps uppercase text-on-surface-variant">Estimated Bill (INR)</span>
+          <span class="material-symbols-outlined text-secondary">payments</span>
+        </div>
+        <div class="flex flex-col">
+          <span class="font-data-display text-data-display text-on-surface" id="est-bill">INR 6,840</span>
+          <div class="mt-xs flex items-center gap-1 text-xs font-semibold text-error">
+            <span class="material-symbols-outlined text-sm">warning</span>
+            <span>High slab rate active</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="rounded-xl border border-outline-variant/30 bg-surface-container-lowest p-lg shadow-[0_4px_12px_rgba(0,0,0,0.05)] transition-all hover:shadow-[0_8px_20px_rgba(0,0,0,0.08)]">
+        <div class="mb-sm flex items-start justify-between">
+          <span class="font-label-caps text-label-caps uppercase text-on-surface-variant">Predicted Units (Next)</span>
+          <span class="material-symbols-outlined text-tertiary-container">timeline</span>
+        </div>
+        <div class="flex flex-col">
+          <span class="font-data-display text-data-display text-on-surface" id="pred-units">1,180</span>
+          <span class="mt-xs text-xs text-on-surface-variant">Based on recent average usage</span>
+        </div>
+      </div>
+
+      <div class="rounded-xl border border-outline-variant/30 bg-surface-container-lowest p-lg shadow-[0_4px_12px_rgba(0,0,0,0.05)] transition-all hover:shadow-[0_8px_20px_rgba(0,0,0,0.08)]">
+        <div class="mb-sm flex items-start justify-between">
+          <span class="font-label-caps text-label-caps uppercase text-on-surface-variant">Predicted Bill (INR)</span>
+          <span class="material-symbols-outlined text-primary-container">account_balance_wallet</span>
+        </div>
+        <div class="flex flex-col">
+          <span class="font-data-display text-data-display text-on-surface" id="pred-bill">INR 5,420</span>
+          <span class="mt-xs w-fit rounded-full bg-secondary-container/20 px-2 py-0.5 text-[10px] font-bold uppercase text-on-secondary-container">Potential savings</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="mb-xl grid grid-cols-1 gap-lg lg:grid-cols-12">
+      <div class="flex flex-col gap-lg lg:col-span-7">
+        <div class="rounded-xl bg-surface-container-lowest p-lg shadow-[0_4px_12px_rgba(0,0,0,0.05)]">
+          <h3 class="mb-lg font-h3 text-h3 text-on-surface">Consumption Entry</h3>
+          <div class="mb-lg grid grid-cols-1 gap-md md:grid-cols-2">
+            <div class="flex flex-col gap-xs">
+              <label class="font-label-caps text-label-caps text-on-surface-variant" for="input-date">Entry Date</label>
+              <input class="w-full rounded-lg border border-outline-variant p-3 font-body-md outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary" id="input-date" type="date" />
+            </div>
+            <div class="flex flex-col gap-xs">
+              <label class="font-label-caps text-label-caps text-on-surface-variant" for="input-units">Units Consumed (kWh)</label>
+              <input class="w-full rounded-lg border border-outline-variant p-3 font-body-md outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary" id="input-units" placeholder="e.g. 45" type="number" />
+            </div>
+          </div>
+          <div class="mb-lg flex flex-wrap gap-md">
+            <button class="flex items-center gap-2 rounded-lg bg-primary px-lg py-3 font-semibold text-on-primary transition-all hover:opacity-90 active:scale-95" id="add-data" type="button">
+              <span class="material-symbols-outlined">add</span>
+              Add Data
+            </button>
+            <button class="rounded-lg border border-outline bg-surface-container-lowest px-lg py-3 font-semibold text-on-surface transition-all hover:bg-surface-container-low" id="clear-data" type="button">
+              Clear Current
+            </button>
+          </div>
+          <div class="cursor-pointer rounded-xl border-2 border-dashed border-outline-variant bg-surface-container-low/30 p-xl transition-all hover:bg-surface-container-low">
+            <div class="flex flex-col items-center justify-center gap-md text-center">
+              <span class="material-symbols-outlined text-4xl text-outline">cloud_upload</span>
+              <div>
+                <p class="font-body-md font-semibold text-on-surface">Upload CSV Data</p>
+                <p class="text-xs text-on-surface-variant">Drop your electricity log file here or click to browse</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="overflow-hidden rounded-xl bg-surface-container-lowest shadow-[0_4px_12px_rgba(0,0,0,0.05)]">
+          <div class="flex items-center justify-between border-b border-outline-variant/30 p-lg">
+            <h3 class="font-h3 text-h3 text-on-surface">Consumption History</h3>
+            <span class="text-xs font-medium text-on-surface-variant">Recent 10 entries</span>
+          </div>
+          <div class="max-h-80 overflow-x-auto">
+            <table class="w-full text-left font-body-md">
+              <thead class="sticky top-0 bg-surface-container-low text-[10px] uppercase tracking-widest text-on-surface-variant">
+                <tr>
+                  <th class="px-lg py-3">Date</th>
+                  <th class="px-lg py-3">Units (kWh)</th>
+                  <th class="px-lg py-3">Estimated Cost</th>
+                  <th class="px-lg py-3 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-outline-variant/20" id="history-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex flex-col gap-lg lg:col-span-5">
+        <div class="rounded-xl border-l-4 border-error bg-surface-container-lowest p-lg shadow-[0_4px_12px_rgba(0,0,0,0.05)]">
+          <div class="mb-lg flex items-center gap-2">
+            <span class="material-symbols-outlined text-error" style="font-variation-settings: 'FILL' 1">warning</span>
+            <h3 class="font-h3 text-h3 text-on-surface">Critical Alerts</h3>
+          </div>
+          <div class="flex flex-col gap-md" id="alerts-container">
+            <div class="rounded-lg border border-error-container/30 bg-error-container/10 p-md">
+              <div class="flex items-start justify-between">
+                <p class="font-body-md font-bold text-on-error-container">High Usage Detected</p>
+                <span class="text-[10px] uppercase text-on-surface-variant">Today</span>
+              </div>
+              <p class="mt-1 text-sm text-on-surface-variant">Your current daily consumption is 40% higher than your weekday average.</p>
+            </div>
+            <div class="rounded-lg border border-outline-variant/30 bg-surface-container-low p-md">
+              <div class="flex items-start justify-between">
+                <p class="font-body-md font-bold text-on-surface">Slab Transition Warning</p>
+                <span class="text-[10px] uppercase text-on-surface-variant">Yesterday</span>
+              </div>
+              <p class="mt-1 text-sm text-on-surface-variant">You are only 15 units away from moving to the INR 8 per unit slab.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-outline-variant/30 bg-surface-container-highest/30 p-lg shadow-[0_4px_12px_rgba(0,0,0,0.05)]">
+          <h3 class="mb-lg font-h3 text-h3 text-on-surface">Energy Saving Insights</h3>
+          <div class="flex flex-col gap-lg">
+            <div class="flex gap-md">
+              <div class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl bg-secondary-container/20 text-secondary">
+                <span class="material-symbols-outlined">lightbulb</span>
+              </div>
+              <div>
+                <p class="font-body-md font-bold text-on-surface">Peak Hour Optimization</p>
+                <p class="text-sm text-on-surface-variant">Shifting high-load appliance use to late-night hours could reduce your bill by approximately 15%.</p>
+              </div>
+            </div>
+            <div class="flex gap-md">
+              <div class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl bg-tertiary-fixed text-tertiary">
+                <span class="material-symbols-outlined">thermostat</span>
+              </div>
+              <div>
+                <p class="font-body-md font-bold text-on-surface">AC Management</p>
+                <p class="text-sm text-on-surface-variant">Increasing AC thermostat by 2 degrees Celsius can save roughly 6% in electricity consumption per month.</p>
+              </div>
+            </div>
+          </div>
+          <button class="mt-xl w-full rounded-lg border border-primary py-3 font-bold text-primary transition-colors hover:bg-primary/5" type="button">View All Optimization Tips</button>
+        </div>
+
+        <div class="rounded-xl bg-surface-container-lowest p-lg shadow-[0_4px_12px_rgba(0,0,0,0.05)]">
+          <h3 class="mb-lg font-h3 text-h3 text-on-surface">7-Day Comparison</h3>
+          <div class="grid grid-cols-2 gap-md">
+            <div class="rounded-lg bg-secondary-container/10 p-md text-center">
+              <p class="mb-xs text-[10px] font-bold uppercase text-on-surface-variant">This Week</p>
+              <p class="text-2xl font-bold text-secondary">284 <span class="text-xs">kWh</span></p>
+            </div>
+            <div class="rounded-lg bg-surface-container-low p-md text-center">
+              <p class="mb-xs text-[10px] font-bold uppercase text-on-surface-variant">Last Week</p>
+              <p class="text-2xl font-bold text-on-surface">312 <span class="text-xs">kWh</span></p>
+            </div>
+          </div>
+          <div class="mt-md flex items-center justify-center gap-2 rounded-lg bg-secondary/10 py-2 text-sm font-bold text-secondary">
+            <span class="material-symbols-outlined">trending_down</span>
+            <span>-9.1% Reduction Achieved</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="mb-xl grid grid-cols-1 gap-lg lg:grid-cols-2">
+      <div class="flex h-[400px] flex-col rounded-xl bg-surface-container-lowest p-lg shadow-[0_4px_12px_rgba(0,0,0,0.05)]">
+        <div class="mb-lg flex items-center justify-between">
+          <h3 class="font-h3 text-h3 text-on-surface">Daily Consumption Trend</h3>
+          <select class="rounded-full bg-surface-container-low px-4 py-2 text-xs font-bold text-on-surface-variant">
+            <option>Last 7 Days</option>
+            <option>Last 30 Days</option>
+          </select>
+        </div>
+        <div class="relative flex flex-grow items-center justify-center overflow-hidden rounded-lg border border-outline-variant/20 bg-slate-50/50">
+          <div class="absolute inset-0 flex items-end justify-between p-lg">
+            <div class="h-1/2 w-1 bg-primary/20"></div>
+            <div class="h-3/4 w-1 bg-primary/30"></div>
+            <div class="h-2/3 w-1 bg-primary/40"></div>
+            <div class="h-5/6 w-1 bg-primary/50"></div>
+            <div class="h-full w-1 bg-primary/60"></div>
+            <div class="h-2/3 w-1 bg-primary/70"></div>
+            <div class="h-4/5 w-1 bg-primary"></div>
+          </div>
+          <p class="z-10 rounded-full bg-white/80 px-4 py-2 font-medium text-on-surface-variant shadow-sm">Daily consumption line chart placeholder</p>
+        </div>
+      </div>
+
+      <div class="flex h-[400px] flex-col rounded-xl bg-surface-container-lowest p-lg shadow-[0_4px_12px_rgba(0,0,0,0.05)]">
+        <div class="mb-lg flex items-center justify-between">
+          <h3 class="font-h3 text-h3 text-on-surface">Units vs Date Analysis</h3>
+          <button class="text-xs font-bold text-primary" type="button">Download SVG</button>
+        </div>
+        <div class="relative flex flex-grow items-center justify-center overflow-hidden rounded-lg border border-outline-variant/20 bg-slate-50/50">
+          <div class="absolute inset-0 flex items-end justify-around gap-2 p-lg">
+            <div class="h-1/2 flex-1 rounded-t-sm bg-secondary/40"></div>
+            <div class="h-2/3 flex-1 rounded-t-sm bg-secondary/40"></div>
+            <div class="h-1/3 flex-1 rounded-t-sm bg-secondary/40"></div>
+            <div class="h-3/4 flex-1 rounded-t-sm bg-secondary/40"></div>
+            <div class="h-1/2 flex-1 rounded-t-sm bg-secondary/40"></div>
+            <div class="h-5/6 flex-1 rounded-t-sm bg-secondary"></div>
+            <div class="h-2/3 flex-1 rounded-t-sm bg-secondary/40"></div>
+          </div>
+          <p class="z-10 rounded-full bg-white/80 px-4 py-2 font-medium text-on-surface-variant shadow-sm">Units vs date bar chart placeholder</p>
+        </div>
+      </div>
+    </div>
+
+    <footer class="mb-xl mt-xl flex flex-col items-center justify-between gap-md border-t border-outline-variant/30 pt-lg text-xs text-on-surface-variant md:flex-row lg:mb-lg">
+      <p>&copy; 2026 Electricity Consumption Monitor. All rights reserved.</p>
+      <p class="rounded-full bg-surface-container px-4 py-2 font-medium">Future scope: integration with IoT smart meters and a Python ML backend</p>
+      <div class="flex gap-md">
+        <a class="transition-colors hover:text-primary" href="#">Privacy Policy</a>
+        <a class="transition-colors hover:text-primary" href="#">Documentation</a>
+      </div>
+    </footer>
+  </main>
+
+  <nav class="fixed bottom-0 left-0 z-50 flex w-full items-center justify-around border-t border-slate-200 bg-white/90 px-4 py-3 shadow-[0_-4px_12px_rgba(0,0,0,0.05)] backdrop-blur-md lg:hidden">
+    <a class="flex flex-col items-center font-bold text-blue-600" href="#">
+      <span class="material-symbols-outlined">home</span>
+      <span class="text-[10px] uppercase tracking-wider">Home</span>
+    </a>
+    <a class="flex flex-col items-center text-slate-400" href="#">
+      <span class="material-symbols-outlined">list_alt</span>
+      <span class="text-[10px] uppercase tracking-wider">Data</span>
+    </a>
+    <a class="flex flex-col items-center text-slate-400" href="#">
+      <span class="material-symbols-outlined">show_chart</span>
+      <span class="text-[10px] uppercase tracking-wider">Trends</span>
+    </a>
+    <a class="flex flex-col items-center text-slate-400" href="#">
+      <span class="material-symbols-outlined">warning</span>
+      <span class="text-[10px] uppercase tracking-wider">Alerts</span>
+    </a>
+  </nav>
+
+  <script>
+    const storageKey = "electricity_monitor_consumption_data";
+    const consumptionData = JSON.parse(localStorage.getItem(storageKey)) || [
+      { date: "2026-04-20", units: 45 },
+      { date: "2026-04-21", units: 38 },
+      { date: "2026-04-22", units: 52 },
+      { date: "2026-04-23", units: 41 }
+    ];
+
+    function calculateBill(units) {
+      let total = 0;
+
+      if (units <= 100) {
+        total = units * 3;
+      } else if (units <= 200) {
+        total = 100 * 3 + (units - 100) * 5;
+      } else {
+        total = 100 * 3 + 100 * 5 + (units - 200) * 8;
+      }
+
+      return total;
+    }
+
+    function formatCurrency(value) {
+      return "INR " + value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+    }
+
+    function updateUI() {
+      const tbody = document.getElementById("history-tbody");
+      tbody.innerHTML = "";
+
+      let totalUnits = 0;
+
+      consumptionData.forEach((entry, index) => {
+        totalUnits += Number(entry.units);
+        const cost = calculateBill(Number(entry.units));
+
+        const row = document.createElement("tr");
+        row.className = "transition-colors hover:bg-surface-container-low";
+        row.innerHTML = `
+          <td class="px-lg py-4 font-medium">${new Date(entry.date).toLocaleDateString()}</td>
+          <td class="px-lg py-4">${entry.units}</td>
+          <td class="px-lg py-4">${formatCurrency(cost)}</td>
+          <td class="px-lg py-4 text-right">
+            <button onclick="deleteEntry(${index})" class="rounded p-1 text-error transition-colors hover:bg-error-container/20" type="button" aria-label="Delete entry">
+              <span class="material-symbols-outlined text-sm">delete</span>
+            </button>
+          </td>
+        `;
+        tbody.appendChild(row);
+      });
+
+      const avgUnits = consumptionData.length ? totalUnits / consumptionData.length : 0;
+      const nextMonthPrediction = avgUnits * 30;
+
+      document.getElementById("total-units").innerText = totalUnits.toLocaleString();
+      document.getElementById("est-bill").innerText = formatCurrency(calculateBill(totalUnits));
+      document.getElementById("pred-units").innerText = Math.round(nextMonthPrediction).toLocaleString();
+      document.getElementById("pred-bill").innerText = formatCurrency(calculateBill(nextMonthPrediction));
+
+      localStorage.setItem(storageKey, JSON.stringify(consumptionData));
+    }
+
+    function deleteEntry(index) {
+      consumptionData.splice(index, 1);
+      updateUI();
+    }
+
+    document.getElementById("add-data").addEventListener("click", () => {
+      const date = document.getElementById("input-date").value;
+      const unitsValue = document.getElementById("input-units").value;
+      const units = Number(unitsValue);
+
+      if (!date || !unitsValue || units <= 0) {
+        alert("Please enter a valid date and units value.");
+        return;
+      }
+
+      consumptionData.push({ date, units });
+      consumptionData.sort((a, b) => new Date(b.date) - new Date(a.date));
+      updateUI();
+      document.getElementById("input-units").value = "";
+    });
+
+    document.getElementById("clear-data").addEventListener("click", () => {
+      document.getElementById("input-date").value = "";
+      document.getElementById("input-units").value = "";
+    });
+
+    updateUI();
+  </script>
+</body>
+</html>
