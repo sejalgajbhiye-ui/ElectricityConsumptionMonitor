@@ -1,285 +1,858 @@
-import pandas as pd
-import plotly.express as px
-import requests
-import streamlit as st
+import math
+import tkinter as tk
+from tkinter import filedialog, messagebox, ttk
+
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas as pdf_canvas
 
 
-CITY = "Pune"
-PUNE_LATITUDE = 18.5204
-PUNE_LONGITUDE = 73.8567
-OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
-MSEDCL_SLABS = [
-    {"from": 0, "to": 100, "rate": 3.44, "label": "0-100 units"},
-    {"from": 101, "to": 300, "rate": 7.34, "label": "101-300 units"},
-    {"from": 301, "to": 500, "rate": 10.26, "label": "301-500 units"},
-    {"from": 501, "to": 1000, "rate": 11.31, "label": "501-1000 units"},
-    {"from": 1001, "to": None, "rate": 12.50, "label": "Above 1000 units"},
-]
-ELECTRICITY_DUTY_RATE = 0.05
+APPLIANCE_WATTAGE = {
+    "Fan": 75,
+    "LED Bulb": 9,
+    "Tube Light": 40,
+    "TV": 100,
+    "Refrigerator": 200,
+    "AC": 1500,
+    "Washing Machine": 500,
+}
+
+FIXED_CHARGE = 50.0
+ELECTRICITY_DUTY_RATE = 0.21
+CO2_FACTOR = 0.82
+TREE_OFFSET = 21.0
+HIGH_USAGE_THRESHOLD = 200.0
+HIGH_APPLIANCE_THRESHOLD = 120.0
 
 
-st.set_page_config(
-    page_title="Electricity Consumption & Bill Prediction System",
-    page_icon="⚡",
-    layout="wide",
-)
+class ToolTip:
+    def __init__(self, widget, text):
+        self.widget = widget
+        self.text = text
+        self.tip_window = None
+        widget.bind("<Enter>", self.show_tip)
+        widget.bind("<Leave>", self.hide_tip)
 
-
-def calculate_bill(units):
-    """Estimate Pune residential MSEDCL bill using progressive slabs."""
-    remaining_units = max(units, 0)
-    energy_charge = 0
-    breakdown = []
-
-    for slab in MSEDCL_SLABS:
-        lower_limit = slab["from"]
-        upper_limit = slab["to"]
-
-        if upper_limit is None:
-            slab_capacity = remaining_units
-        else:
-            slab_capacity = upper_limit - lower_limit + 1
-
-        slab_units = min(remaining_units, slab_capacity)
-        if slab_units <= 0:
-            continue
-
-        charge = slab_units * slab["rate"]
-        energy_charge += charge
-        breakdown.append(
-            {
-                "Slab": slab["label"],
-                "Units": slab_units,
-                "Rate": slab["rate"],
-                "Amount": charge,
-            }
+    def show_tip(self, _event=None):
+        if self.tip_window or not self.text:
+            return
+        x = self.widget.winfo_rootx() + 18
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
+        self.tip_window = tk.Toplevel(self.widget)
+        self.tip_window.wm_overrideredirect(True)
+        self.tip_window.wm_geometry(f"+{x}+{y}")
+        label = tk.Label(
+            self.tip_window,
+            text=self.text,
+            bg="#fbf7d8",
+            fg="#2d4137",
+            relief="solid",
+            bd=1,
+            padx=8,
+            pady=4,
+            font=("Segoe UI", 9),
         )
-        remaining_units -= slab_units
+        label.pack()
 
-        if remaining_units <= 0:
-            break
-
-    fixed_charge = get_fixed_charge(units)
-    electricity_duty = energy_charge * ELECTRICITY_DUTY_RATE
-    total_bill = energy_charge + fixed_charge + electricity_duty
-
-    return {
-        "energy_charge": energy_charge,
-        "fixed_charge": fixed_charge,
-        "electricity_duty": electricity_duty,
-        "total_bill": total_bill,
-        "breakdown": breakdown,
-    }
+    def hide_tip(self, _event=None):
+        if self.tip_window:
+            self.tip_window.destroy()
+            self.tip_window = None
 
 
-def get_fixed_charge(units):
-    """Estimate fixed charges based on monthly residential usage."""
-    if units <= 100:
-        return 95
-    if units <= 300:
-        return 120
-    return 170
+class ElectricityConsumptionMonitor:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Electricity Consumption Monitor")
+        self.root.geometry("1340x900")
+        self.root.minsize(1180, 760)
+        self.root.configure(bg="#eef5f1")
 
+        self.mode_var = tk.StringVar(value="appliance")
+        self.appliance_var = tk.StringVar(value="Fan")
+        self.power_var = tk.StringVar(value=str(APPLIANCE_WATTAGE["Fan"]))
+        self.hours_var = tk.StringVar(value="1")
+        self.days_var = tk.StringVar(value="30")
+        self.appliance_units_var = tk.StringVar(value="0.00 kWh")
 
-def predict_units(m1, m2, m3):
-    """Predict base units from the last three months."""
-    weighted = m1 * 0.2 + m2 * 0.3 + m3 * 0.5
-    growth = ((m2 - m1) + (m3 - m2)) / 2
-    trend = m3 + growth
-    base_prediction = (weighted + trend) / 2
+        self.current_reading_var = tk.StringVar(value="0")
+        self.previous_reading_var = tk.StringVar(value="0")
+        self.reading_units_var = tk.StringVar(value="0.00 units")
 
-    return {
-        "weighted": weighted,
-        "growth": growth,
-        "trend": trend,
-        "base_prediction": base_prediction,
-    }
+        self.previous_month_units_var = tk.StringVar(value="0")
 
+        self.total_units_var = tk.StringVar(value="0.00 units")
+        self.energy_charge_var = tk.StringVar(value="Rs 0.00")
+        self.duty_var = tk.StringVar(value="Rs 0.00")
+        self.fixed_charge_var = tk.StringVar(value=f"Rs {FIXED_CHARGE:.2f}")
+        self.final_bill_var = tk.StringVar(value="Rs 0.00")
+        self.amount_words_var = tk.StringVar(value="Zero rupees only")
 
-def fetch_pune_forecast():
-    """Fetch Pune's 7-day forecast from Open-Meteo. No API key is required."""
-    try:
-        response = requests.get(
-            OPEN_METEO_URL,
-            params={
-                "latitude": PUNE_LATITUDE,
-                "longitude": PUNE_LONGITUDE,
-                "daily": "temperature_2m_max,temperature_2m_min",
-                "timezone": "Asia/Kolkata",
-                "forecast_days": 7,
-            },
-            timeout=10,
+        self.highest_appliance_var = tk.StringVar(value="No appliance data yet")
+        self.usage_change_var = tk.StringVar(value="Enter previous month units for comparison")
+        self.insight_message_var = tk.StringVar(value="Add appliance data or meter readings to generate insights")
+
+        self.co2_var = tk.StringVar(value="0.00 kg CO2")
+        self.trees_var = tk.StringVar(value="0.00 trees")
+        self.eco_message_var = tk.StringVar(value="Low impact")
+
+        self.appliance_rows = []
+        self.chart_canvases = []
+        self.warning_state = {"high_units": False, "high_appliance": False}
+
+        self._configure_style()
+        self._build_layout()
+        self._bind_events()
+        self.update_mode_view()
+        self.refresh_all()
+
+    def _configure_style(self):
+        style = ttk.Style()
+        style.theme_use("clam")
+        style.configure("App.TFrame", background="#eef5f1")
+        style.configure("Card.TFrame", background="#ffffff")
+        style.configure("Header.TLabel", background="#eef5f1", foreground="#173f35", font=("Segoe UI", 22, "bold"))
+        style.configure("SubHeader.TLabel", background="#eef5f1", foreground="#55766a", font=("Segoe UI", 10))
+        style.configure("Section.TLabel", background="#dfece6", foreground="#153a31", font=("Segoe UI", 11, "bold"))
+        style.configure("Field.TLabel", background="#ffffff", foreground="#28493f", font=("Segoe UI", 10))
+        style.configure("Value.TLabel", background="#ffffff", foreground="#153a31", font=("Segoe UI", 10, "bold"))
+        style.configure("Summary.TLabel", background="#ffffff", foreground="#0f5132", font=("Segoe UI", 16, "bold"))
+        style.configure("Muted.TLabel", background="#ffffff", foreground="#5a7569", font=("Segoe UI", 9))
+        style.configure("Treeview.Heading", font=("Segoe UI", 10, "bold"))
+        style.configure("Treeview", rowheight=28, font=("Segoe UI", 10))
+
+    def _build_layout(self):
+        shell = ttk.Frame(self.root, style="App.TFrame")
+        shell.pack(fill="both", expand=True)
+
+        self.canvas = tk.Canvas(shell, bg="#eef5f1", highlightthickness=0)
+        self.canvas.pack(side="left", fill="both", expand=True)
+        scrollbar = ttk.Scrollbar(shell, orient="vertical", command=self.canvas.yview)
+        scrollbar.pack(side="right", fill="y")
+        self.canvas.configure(yscrollcommand=scrollbar.set)
+
+        wrapper = ttk.Frame(self.canvas, style="App.TFrame", padding=18)
+        self.canvas_window = self.canvas.create_window((0, 0), window=wrapper, anchor="nw")
+        wrapper.bind("<Configure>", self._on_frame_configure)
+        self.canvas.bind("<Configure>", self._on_canvas_configure)
+        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+
+        header = ttk.Frame(wrapper, style="App.TFrame")
+        header.pack(fill="x", pady=(0, 14))
+        ttk.Label(header, text="Electricity Consumption Monitor", style="Header.TLabel").pack(anchor="w")
+        ttk.Label(
+            header,
+            text="A bill-style desktop application with appliance tracking, meter mode, billing, insights, CO2 impact, and exports.",
+            style="SubHeader.TLabel",
+        ).pack(anchor="w", pady=(4, 0))
+
+        mode_card = self._make_card(wrapper)
+        mode_card.pack(fill="x", pady=(0, 10))
+        ttk.Label(mode_card, text="MODE SELECTION", style="Section.TLabel").pack(fill="x", pady=(0, 10))
+        mode_row = ttk.Frame(mode_card, style="Card.TFrame")
+        mode_row.pack(fill="x")
+        ttk.Radiobutton(mode_row, text="Appliance Mode", variable=self.mode_var, value="appliance", command=self.update_mode_view).pack(side="left", padx=(0, 16))
+        ttk.Radiobutton(mode_row, text="Meter Reading Mode", variable=self.mode_var, value="meter", command=self.update_mode_view).pack(side="left")
+
+        body = ttk.Frame(wrapper, style="App.TFrame")
+        body.pack(fill="both", expand=True)
+        body.columnconfigure(0, weight=3)
+        body.columnconfigure(1, weight=2)
+        body.rowconfigure(0, weight=1)
+        body.rowconfigure(1, weight=1)
+        body.rowconfigure(2, weight=1)
+
+        self.input_card = self._make_card(body)
+        self.input_card.grid(row=0, column=0, sticky="nsew", padx=(0, 10), pady=(0, 10))
+        self.billing_card = self._make_card(body)
+        self.billing_card.grid(row=0, column=1, sticky="nsew", pady=(0, 10))
+        self.impact_card = self._make_card(body)
+        self.impact_card.grid(row=1, column=1, sticky="nsew")
+        self.tips_card = self._make_card(body)
+        self.tips_card.grid(row=1, column=0, sticky="nsew", padx=(0, 10))
+        self.chart_card = self._make_card(body)
+        self.chart_card.grid(row=2, column=0, columnspan=2, sticky="nsew", pady=(10, 0))
+
+        self._build_input_section()
+        self._build_billing_section()
+        self._build_environment_section()
+        self._build_tips_section()
+        self._build_chart_section()
+
+    def _make_card(self, parent):
+        return ttk.Frame(parent, style="Card.TFrame", padding=14)
+
+    def _build_input_section(self):
+        ttk.Label(self.input_card, text="APPLIANCE-BASED INPUT", style="Section.TLabel").pack(fill="x", pady=(0, 10))
+
+        self.appliance_mode_frame = ttk.Frame(self.input_card, style="Card.TFrame")
+        self.appliance_mode_frame.pack(fill="x")
+        self.appliance_mode_frame.columnconfigure((0, 1, 2, 3, 4), weight=1)
+
+        appliance_headers = ["Appliance", "Power (W)", "Hours / Day", "Days", "Units"]
+        for column, text in enumerate(appliance_headers):
+            self._table_cell(self.appliance_mode_frame, 0, column, text, header=True)
+
+        self.appliance_combo = ttk.Combobox(
+            self.appliance_mode_frame,
+            textvariable=self.appliance_var,
+            values=list(APPLIANCE_WATTAGE.keys()),
+            state="readonly",
+            width=18,
         )
-        response.raise_for_status()
-        data = response.json()
+        self.appliance_combo.grid(row=1, column=0, sticky="nsew")
+        self.power_entry = self._entry_cell(self.appliance_mode_frame, 1, 1, self.power_var)
+        self.hours_spinbox = self._spinbox_cell(self.appliance_mode_frame, 1, 2, self.hours_var, 0.5, 24, 0.5)
+        self.days_spinbox = self._spinbox_cell(self.appliance_mode_frame, 1, 3, self.days_var, 1, 365, 1)
+        self._table_cell(self.appliance_mode_frame, 1, 4, self.appliance_units_var, is_var=True)
 
-        dates = data["daily"]["time"]
-        max_temps = data["daily"]["temperature_2m_max"]
-        min_temps = data["daily"]["temperature_2m_min"]
-        forecast_df = pd.DataFrame(
-            {
-                "Date": dates,
-                "Max Temp (°C)": max_temps,
-                "Min Temp (°C)": min_temps,
-            }
-        )
-        average_max_temp = sum(max_temps) / len(max_temps)
+        appliance_buttons = ttk.Frame(self.input_card, style="Card.TFrame")
+        appliance_buttons.pack(fill="x", pady=(10, 12))
+        appliance_buttons.columnconfigure((0, 1, 2), weight=1)
+        add_button = ttk.Button(appliance_buttons, text="Add Appliance", command=self.add_appliance)
+        add_button.grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        remove_button = ttk.Button(appliance_buttons, text="Remove Selected", command=self.remove_selected)
+        remove_button.grid(row=0, column=1, sticky="ew", padx=6)
+        reset_button = ttk.Button(appliance_buttons, text="Reset All", command=self.reset_all)
+        reset_button.grid(row=0, column=2, sticky="ew", padx=(6, 0))
 
-        return average_max_temp, forecast_df, None
-    except requests.RequestException as error:
-        return None, pd.DataFrame(), f"Weather forecast request failed: {error}"
-    except KeyError:
-        return None, pd.DataFrame(), "Weather forecast response was incomplete."
+        ToolTip(add_button, "Add the current appliance setup to the monthly list.")
+        ToolTip(remove_button, "Remove the selected appliance row from the table.")
+        ToolTip(reset_button, "Clear appliance data, meter values, and all totals.")
 
-
-def get_weather_adjustment(temperature_celsius):
-    """Return weather factor and insight based on temperature."""
-    if temperature_celsius is None:
-        return 1.0, "Weather unavailable → prediction shown without weather adjustment"
-
-    if temperature_celsius > 30:
-        return 1.2, "Hot weather → usage may increase"
-    if temperature_celsius < 20:
-        return 1.1, "Cold weather → usage may increase"
-    return 1.0, "Normal conditions"
-
-
-def build_chart_data(m1, m2, m3, predicted):
-    """Create a dataframe for charts."""
-    return pd.DataFrame(
-        {
-            "Period": ["Month 1", "Month 2", "Month 3", "Predicted"],
-            "Units": [m1, m2, m3, predicted],
+        columns = ("appliance", "power", "hours", "days", "units")
+        self.tree = ttk.Treeview(self.input_card, columns=columns, show="headings", height=9)
+        self.tree.pack(fill="both", expand=True)
+        headings = {
+            "appliance": "Appliance",
+            "power": "Power (W)",
+            "hours": "Hours / Day",
+            "days": "Days",
+            "units": "Units (kWh)",
         }
-    )
+        widths = {"appliance": 180, "power": 110, "hours": 110, "days": 90, "units": 120}
+        for key in columns:
+            self.tree.heading(key, text=headings[key])
+            self.tree.column(key, width=widths[key], anchor="center")
 
+        ttk.Label(self.input_card, text="CURRENT CONSUMPTION DETAILS", style="Section.TLabel").pack(fill="x", pady=(14, 10))
 
-st.title("⚡ Electricity Consumption & Bill Prediction System")
-st.subheader("Analyze recent usage, include Pune weather, and estimate your next bill")
+        self.meter_mode_frame = ttk.Frame(self.input_card, style="Card.TFrame")
+        self.meter_mode_frame.pack(fill="x")
+        self.meter_mode_frame.columnconfigure((0, 1, 2), weight=1)
 
-st.info(
-    "Enter the last three months of electricity units. The app predicts next month "
-    "using weighted average, usage trend, Pune's 7-day weather forecast, and "
-    "Pune/MSEDCL-style residential slab billing."
-)
+        meter_headers = ["Current Reading", "Previous Reading", "Total Consumption"]
+        for column, text in enumerate(meter_headers):
+            self._table_cell(self.meter_mode_frame, 0, column, text, header=True)
 
-with st.sidebar:
-    st.header("🌦️ Pune Forecast")
-    st.caption("Weather data is fetched automatically from Open-Meteo. No API key is required.")
+        self.current_entry = self._entry_cell(self.meter_mode_frame, 1, 0, self.current_reading_var)
+        self.previous_entry = self._entry_cell(self.meter_mode_frame, 1, 1, self.previous_reading_var)
+        self._table_cell(self.meter_mode_frame, 1, 2, self.reading_units_var, is_var=True)
 
-input_col, info_col = st.columns([1.1, 0.9])
+        comparison_frame = ttk.Frame(self.input_card, style="Card.TFrame")
+        comparison_frame.pack(fill="x", pady=(14, 0))
+        ttk.Label(comparison_frame, text="Previous Month Units", style="Field.TLabel").pack(side="left")
+        self.previous_month_entry = ttk.Entry(comparison_frame, textvariable=self.previous_month_units_var, width=14, justify="center")
+        self.previous_month_entry.pack(side="left", padx=(10, 0))
+        ToolTip(self.previous_month_entry, "Enter last month's total units to compare increase or decrease.")
 
-with input_col:
-    st.markdown("### 🔢 Last 3 Months Usage")
+    def _build_billing_section(self):
+        ttk.Label(self.billing_card, text="BILLING DETAILS", style="Section.TLabel").pack(fill="x", pady=(0, 10))
 
-    m1 = st.number_input("Month 1 units", min_value=0.0, step=1.0, value=0.0)
-    m2 = st.number_input("Month 2 units", min_value=0.0, step=1.0, value=0.0)
-    m3 = st.number_input("Month 3 units", min_value=0.0, step=1.0, value=0.0)
+        slab_frame = ttk.Frame(self.billing_card, style="Card.TFrame")
+        slab_frame.pack(fill="x")
+        slab_frame.columnconfigure((0, 1, 2), weight=1)
 
-    predict_clicked = st.button("🔮 Predict", use_container_width=True)
+        headers = ["Units Consumed", "Rate Per Unit", "Charges"]
+        for column, text in enumerate(headers):
+            self._table_cell(slab_frame, 0, column, text, header=True)
 
-with info_col:
-    st.markdown("### 🧠 Prediction Formula")
-    st.write("**weighted** = m1×0.2 + m2×0.3 + m3×0.5")
-    st.write("**growth** = ((m2 - m1) + (m3 - m2)) / 2")
-    st.write("**trend** = m3 + growth")
-    st.write("**basePrediction** = (weighted + trend) / 2")
+        self.slab_1_var = tk.StringVar(value="Rs 0.00")
+        self.slab_2_var = tk.StringVar(value="Rs 0.00")
+        self.slab_3_var = tk.StringVar(value="Rs 0.00")
+        slabs = [
+            ("0-100 units", "Rs 3.00", self.slab_1_var),
+            ("101-200 units", "Rs 5.00", self.slab_2_var),
+            ("Above 200 units", "Rs 8.00", self.slab_3_var),
+        ]
+        for row_index, (name, rate, variable) in enumerate(slabs, start=1):
+            self._table_cell(slab_frame, row_index, 0, name)
+            self._table_cell(slab_frame, row_index, 1, rate)
+            self._table_cell(slab_frame, row_index, 2, variable, is_var=True)
 
-if predict_clicked:
-    if m1 <= 0 or m2 <= 0 or m3 <= 0:
-        st.error("Please enter valid units greater than 0 for all three months.")
-    else:
-        forecast_temperature, forecast_df, weather_error = fetch_pune_forecast()
-        prediction = predict_units(m1, m2, m3)
-        weather_factor, insight = get_weather_adjustment(forecast_temperature)
+        summary = ttk.Frame(self.billing_card, style="Card.TFrame")
+        summary.pack(fill="x", pady=(14, 10))
+        summary.columnconfigure(0, weight=1)
+        summary.columnconfigure(1, weight=1)
+        self._summary_row(summary, 0, "Total Units", self.total_units_var)
+        self._summary_row(summary, 1, "Energy Charges", self.energy_charge_var)
+        self._summary_row(summary, 2, "Electricity Duty (21%)", self.duty_var)
+        self._summary_row(summary, 3, "Fixed Charge", self.fixed_charge_var)
+        self._summary_row(summary, 4, "Final Bill Amount", self.final_bill_var, emphasize=True)
+        self._summary_row(summary, 5, "Amount in Words", self.amount_words_var)
 
-        final_prediction = prediction["base_prediction"] * weather_factor
-        bill_details = calculate_bill(final_prediction)
-        predicted_bill = bill_details["total_bill"]
+        ttk.Label(self.billing_card, text="SMART INSIGHTS", style="Section.TLabel").pack(fill="x", pady=(6, 10))
+        insight_frame = ttk.Frame(self.billing_card, style="Card.TFrame")
+        insight_frame.pack(fill="x")
+        self._summary_row(insight_frame, 0, "Highest Consuming Appliance", self.highest_appliance_var)
+        self._summary_row(insight_frame, 1, "Usage Change", self.usage_change_var)
+        self._summary_row(insight_frame, 2, "Insight", self.insight_message_var)
 
-        st.markdown("## 📊 Prediction Dashboard")
+    def _build_environment_section(self):
+        ttk.Label(self.impact_card, text="ENVIRONMENTAL IMPACT", style="Section.TLabel").pack(fill="x", pady=(0, 10))
 
-        card1, card2, card3, card4 = st.columns(4)
-        card1.metric(
-            "🌡️ Pune Forecast Avg Max",
-            "Unavailable" if forecast_temperature is None else f"{forecast_temperature:.1f}°C",
+        info_frame = ttk.Frame(self.impact_card, style="Card.TFrame")
+        info_frame.pack(fill="x")
+        info_frame.columnconfigure(0, weight=1)
+        info_frame.columnconfigure(1, weight=1)
+
+        self._summary_row(info_frame, 0, "CO2 Emission", self.co2_var)
+        self._summary_row(info_frame, 1, "Trees Required", self.trees_var)
+        self._summary_row(info_frame, 2, "Eco Message", self.eco_message_var, emphasize=True)
+
+        note = (
+            "Environmental estimate uses 1 kWh ≈ 0.82 kg CO2 and 1 tree ≈ 21 kg CO2 per year."
         )
-        card2.metric("⚡ Predicted Units", f"{final_prediction:.2f}")
-        card3.metric("💰 Predicted Bill", f"₹{predicted_bill:.2f}")
-        card4.metric("🌦️ Weather Factor", f"{weather_factor:.1f}x")
+        ttk.Label(self.impact_card, text=note, style="Muted.TLabel", wraplength=360, justify="left").pack(anchor="w", pady=(12, 0))
 
-        if weather_error:
-            st.warning(weather_error)
+    def _build_tips_section(self):
+        ttk.Label(self.tips_card, text="REFERENCE & ENERGY TIPS", style="Section.TLabel").pack(fill="x", pady=(0, 10))
 
-        st.success(insight)
-        st.caption(
-            "Bill is an estimate using Pune residential slab rates, fixed charge, "
-            "and 5% electricity duty. Official bills may include FAC, meter rent, "
-            "subsidies, arrears, and other adjustments."
+        wattage_frame = ttk.LabelFrame(self.tips_card, text="Typical Wattage Reference", padding=12)
+        wattage_frame.pack(fill="x", pady=(0, 10))
+        wattage_text = "\n".join(f"{name}: {wattage}W" for name, wattage in APPLIANCE_WATTAGE.items())
+        ttk.Label(wattage_frame, text=wattage_text, style="Field.TLabel", justify="left").pack(anchor="w")
+
+        tips_frame = ttk.LabelFrame(self.tips_card, text="Energy Saving Tips", padding=12)
+        tips_frame.pack(fill="x", pady=(0, 10))
+        tips_text = (
+            "1. Reduce AC usage during peak summer hours.\n"
+            "2. Replace old bulbs with LED lights.\n"
+            "3. Avoid standby power loss from idle devices.\n"
+            "4. Run washing machines with full loads.\n"
+            "5. Track high-consuming appliances every month."
         )
+        ttk.Label(tips_frame, text=tips_text, style="Muted.TLabel", justify="left").pack(anchor="w")
 
-        if not forecast_df.empty:
-            with st.expander("🌦️ 7-Day Pune Weather Forecast", expanded=False):
-                st.dataframe(forecast_df, use_container_width=True, hide_index=True)
+        export_frame = ttk.LabelFrame(self.tips_card, text="Export Options", padding=12)
+        export_frame.pack(fill="x")
+        export_buttons = ttk.Frame(export_frame, style="Card.TFrame")
+        export_buttons.pack(fill="x")
+        export_buttons.columnconfigure(0, weight=1)
+        pdf_button = ttk.Button(export_buttons, text="Export PDF Bill", command=self.export_pdf)
+        pdf_button.grid(row=0, column=0, sticky="ew")
+        ToolTip(pdf_button, "Export a clean electricity bill PDF using reportlab.")
 
-        with st.expander("💰 MSEDCL-Style Bill Breakdown", expanded=True):
-            slab_df = pd.DataFrame(bill_details["breakdown"])
-            if not slab_df.empty:
-                slab_df["Rate"] = slab_df["Rate"].map(lambda value: f"₹{value:.2f}/unit")
-                slab_df["Amount"] = slab_df["Amount"].map(lambda value: f"₹{value:.2f}")
-                st.dataframe(slab_df, use_container_width=True, hide_index=True)
+    def _build_chart_section(self):
+        ttk.Label(self.chart_card, text="CONSUMPTION VISUALIZATION", style="Section.TLabel").pack(fill="x", pady=(0, 10))
 
-            bill_col1, bill_col2, bill_col3 = st.columns(3)
-            bill_col1.metric("Energy Charges", f"₹{bill_details['energy_charge']:.2f}")
-            bill_col2.metric("Fixed Charges", f"₹{bill_details['fixed_charge']:.2f}")
-            bill_col3.metric("Electricity Duty", f"₹{bill_details['electricity_duty']:.2f}")
+        action_row = ttk.Frame(self.chart_card, style="Card.TFrame")
+        action_row.pack(fill="x", pady=(0, 10))
+        action_row.columnconfigure((0, 1, 2), weight=1)
+        ttk.Button(action_row, text="Bar Chart", command=self.show_bar_chart_popup).grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        ttk.Button(action_row, text="Pie Chart", command=self.show_pie_chart_popup).grid(row=0, column=1, sticky="ew", padx=6)
+        ttk.Button(action_row, text="Bill Breakdown", command=self.show_bill_chart_popup).grid(row=0, column=2, sticky="ew", padx=(6, 0))
 
-        with st.expander("🧮 Calculation Breakdown", expanded=True):
-            breakdown = pd.DataFrame(
-                {
-                    "Metric": ["Weighted", "Growth", "Trend", "Base Prediction", "Final Prediction"],
-                    "Value": [
-                        prediction["weighted"],
-                        prediction["growth"],
-                        prediction["trend"],
-                        prediction["base_prediction"],
-                        final_prediction,
-                    ],
-                }
+        chart_wrap = ttk.Frame(self.chart_card, style="Card.TFrame")
+        chart_wrap.pack(fill="both", expand=True)
+        chart_wrap.columnconfigure((0, 1, 2), weight=1)
+
+        self.chart_hosts = []
+        for column, title in enumerate(("Appliance vs Units", "Consumption Distribution", "Bill Breakdown")):
+            frame = ttk.LabelFrame(chart_wrap, text=title, padding=8)
+            frame.grid(row=0, column=column, sticky="nsew", padx=6)
+            host = ttk.Frame(frame, style="Card.TFrame")
+            host.pack(fill="both", expand=True)
+            self.chart_hosts.append(host)
+
+    def _table_cell(self, parent, row, column, value, header=False, is_var=False):
+        frame = tk.Frame(
+            parent,
+            bg="#d8e6df" if header else "#ffffff",
+            highlightbackground="#88a59a",
+            highlightthickness=1,
+            bd=0,
+        )
+        frame.grid(row=row, column=column, sticky="nsew")
+        parent.grid_rowconfigure(row, weight=1)
+        parent.grid_columnconfigure(column, weight=1)
+
+        if is_var:
+            label = ttk.Label(frame, textvariable=value, style="Value.TLabel", anchor="center")
+        else:
+            style = "Section.TLabel" if header else "Field.TLabel"
+            label = ttk.Label(frame, text=value, style=style, anchor="center", justify="center")
+        label.pack(fill="both", expand=True, padx=8, pady=10)
+
+    def _entry_cell(self, parent, row, column, variable):
+        frame = tk.Frame(parent, bg="#ffffff", highlightbackground="#88a59a", highlightthickness=1, bd=0)
+        frame.grid(row=row, column=column, sticky="nsew")
+        entry = ttk.Entry(frame, textvariable=variable, justify="center")
+        entry.pack(fill="both", expand=True, padx=8, pady=8)
+        return entry
+
+    def _spinbox_cell(self, parent, row, column, variable, start, end, increment):
+        frame = tk.Frame(parent, bg="#ffffff", highlightbackground="#88a59a", highlightthickness=1, bd=0)
+        frame.grid(row=row, column=column, sticky="nsew")
+        spinbox = tk.Spinbox(
+            frame,
+            from_=start,
+            to=end,
+            increment=increment,
+            textvariable=variable,
+            font=("Segoe UI", 10),
+            relief="flat",
+            justify="center",
+        )
+        spinbox.pack(fill="both", expand=True, padx=8, pady=8)
+        return spinbox
+
+    def _summary_row(self, parent, row, label_text, variable, emphasize=False):
+        ttk.Label(parent, text=label_text, style="Field.TLabel").grid(row=row, column=0, sticky="w", pady=4)
+        style = "Summary.TLabel" if emphasize else "Value.TLabel"
+        ttk.Label(parent, textvariable=variable, style=style).grid(row=row, column=1, sticky="e", pady=4)
+
+    def _bind_events(self):
+        self.appliance_combo.bind("<<ComboboxSelected>>", self.on_appliance_change)
+        for variable in (self.power_var, self.hours_var, self.days_var):
+            variable.trace_add("write", self.on_appliance_input_change)
+        for variable in (self.current_reading_var, self.previous_reading_var, self.previous_month_units_var):
+            variable.trace_add("write", self.on_meter_input_change)
+
+    def _on_frame_configure(self, _event):
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+
+    def _on_canvas_configure(self, event):
+        self.canvas.itemconfigure(self.canvas_window, width=event.width)
+
+    def _on_mousewheel(self, event):
+        self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+    def update_mode_view(self):
+        appliance_mode = self.mode_var.get() == "appliance"
+        appliance_state = "normal" if appliance_mode else "disabled"
+        meter_state = "normal" if not appliance_mode else "disabled"
+
+        for widget in (self.appliance_combo, self.power_entry, self.hours_spinbox, self.days_spinbox):
+            widget.configure(state=appliance_state)
+        self.current_entry.configure(state=meter_state)
+        self.previous_entry.configure(state=meter_state)
+        self.refresh_all()
+
+    def on_appliance_change(self, _event=None):
+        self.power_var.set(str(APPLIANCE_WATTAGE.get(self.appliance_var.get(), "")))
+        self.update_appliance_preview()
+
+    def on_appliance_input_change(self, *_args):
+        self.update_appliance_preview()
+
+    def on_meter_input_change(self, *_args):
+        self.refresh_all()
+
+    def update_appliance_preview(self):
+        parsed = self.parse_appliance_input(show_errors=False)
+        if not parsed:
+            self.appliance_units_var.set("0.00 kWh")
+            return
+        _, power, hours, days = parsed
+        units = self.calculate_appliance_units(power, hours, days)
+        self.appliance_units_var.set(f"{units:.2f} kWh")
+
+    def parse_appliance_input(self, show_errors=True):
+        try:
+            appliance = self.appliance_var.get().strip()
+            power = float(self.power_var.get())
+            hours = float(self.hours_var.get())
+            days = int(float(self.days_var.get()))
+            if not appliance:
+                raise ValueError("Please select an appliance.")
+            if power <= 0 or hours <= 0 or days <= 0:
+                raise ValueError("Power, hours, and days must be greater than 0.")
+            return appliance, power, hours, days
+        except ValueError as error:
+            if show_errors:
+                messagebox.showerror("Invalid Appliance Input", str(error))
+            return None
+
+    def calculate_appliance_units(self, power, hours, days):
+        return (power * hours * days) / 1000
+
+    def add_appliance(self):
+        parsed = self.parse_appliance_input(show_errors=True)
+        if not parsed:
+            return
+
+        appliance, power, hours, days = parsed
+        units = self.calculate_appliance_units(power, hours, days)
+        row = {"appliance": appliance, "power": power, "hours": hours, "days": days, "units": units}
+        self.appliance_rows.append(row)
+        self.tree.insert("", "end", values=(appliance, f"{power:.0f}", f"{hours:.1f}", days, f"{units:.2f}"))
+        self.refresh_all()
+
+    def remove_selected(self):
+        selected_items = self.tree.selection()
+        if not selected_items:
+            messagebox.showinfo("Remove Appliance", "Please select a row to remove.")
+            return
+        if not messagebox.askyesno("Confirm Remove", "Remove the selected appliance entry?"):
+            return
+
+        indices = [self.tree.index(item) for item in selected_items]
+        for item in selected_items:
+            self.tree.delete(item)
+        for index in sorted(indices, reverse=True):
+            if index < len(self.appliance_rows):
+                self.appliance_rows.pop(index)
+        self.refresh_all()
+
+    def reset_all(self):
+        if not messagebox.askyesno("Reset", "Clear all appliance entries and bill values?"):
+            return
+        self.appliance_rows.clear()
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+        self.appliance_var.set("Fan")
+        self.power_var.set(str(APPLIANCE_WATTAGE["Fan"]))
+        self.hours_var.set("1")
+        self.days_var.set("30")
+        self.current_reading_var.set("0")
+        self.previous_reading_var.set("0")
+        self.previous_month_units_var.set("0")
+        self.warning_state = {"high_units": False, "high_appliance": False}
+        self.refresh_all()
+
+    def get_meter_units(self):
+        try:
+            current = float(self.current_reading_var.get())
+            previous = float(self.previous_reading_var.get())
+            units = current - previous
+            if units < 0:
+                self.reading_units_var.set("0.00 units")
+                return 0.0
+            self.reading_units_var.set(f"{units:.2f} units")
+            return units
+        except ValueError:
+            self.reading_units_var.set("0.00 units")
+            return 0.0
+
+    def get_total_units(self):
+        if self.mode_var.get() == "meter":
+            return self.get_meter_units()
+        return sum(item["units"] for item in self.appliance_rows)
+
+    def calculate_energy_charge(self, units):
+        slab_1_units = min(units, 100)
+        slab_2_units = min(max(units - 100, 0), 100)
+        slab_3_units = max(units - 200, 0)
+
+        slab_1_charge = slab_1_units * 3
+        slab_2_charge = slab_2_units * 5
+        slab_3_charge = slab_3_units * 8
+
+        self.slab_1_var.set(f"Rs {slab_1_charge:.2f}")
+        self.slab_2_var.set(f"Rs {slab_2_charge:.2f}")
+        self.slab_3_var.set(f"Rs {slab_3_charge:.2f}")
+
+        return slab_1_charge + slab_2_charge + slab_3_charge
+
+    def refresh_all(self):
+        total_units = self.get_total_units()
+        energy_charge = self.calculate_energy_charge(total_units)
+        duty = energy_charge * ELECTRICITY_DUTY_RATE
+        final_bill = energy_charge + duty + FIXED_CHARGE
+
+        self.total_units_var.set(f"{total_units:.2f} units")
+        self.energy_charge_var.set(f"Rs {energy_charge:.2f}")
+        self.duty_var.set(f"Rs {duty:.2f}")
+        self.fixed_charge_var.set(f"Rs {FIXED_CHARGE:.2f}")
+        self.final_bill_var.set(f"Rs {final_bill:.2f}")
+        self.amount_words_var.set(self.amount_to_words(int(round(final_bill))))
+
+        self.update_insights(total_units)
+        self.update_environment(total_units)
+        self.update_charts()
+        self.show_alerts(total_units)
+
+    def update_insights(self, total_units):
+        if self.appliance_rows:
+            highest = max(self.appliance_rows, key=lambda item: item["units"])
+            percentage = (highest["units"] / total_units * 100) if total_units > 0 else 0
+            self.highest_appliance_var.set(f"{highest['appliance']} ({percentage:.1f}%)")
+        else:
+            self.highest_appliance_var.set("No appliance data available")
+
+        try:
+            previous_units = float(self.previous_month_units_var.get())
+        except ValueError:
+            previous_units = 0.0
+
+        difference = total_units - previous_units
+        if previous_units <= 0:
+            self.usage_change_var.set("Previous month units not available")
+        elif difference > 0:
+            self.usage_change_var.set(f"This month usage increased by {difference:.2f} units")
+        elif difference < 0:
+            self.usage_change_var.set(f"This month usage decreased by {abs(difference):.2f} units")
+        else:
+            self.usage_change_var.set("This month usage is unchanged")
+
+        if total_units > HIGH_USAGE_THRESHOLD:
+            self.insight_message_var.set("High usage detected. Review AC and refrigerator usage.")
+        elif self.appliance_rows:
+            highest = max(self.appliance_rows, key=lambda item: item["units"])
+            if highest["units"] > HIGH_APPLIANCE_THRESHOLD:
+                self.insight_message_var.set(f"{highest['appliance']} is consuming heavily. Consider reducing usage.")
+            else:
+                self.insight_message_var.set("Usage looks moderate. Small optimizations can still reduce the bill.")
+        else:
+            self.insight_message_var.set("Add appliance data or enter meter readings to generate insights")
+
+    def update_environment(self, total_units):
+        co2 = total_units * CO2_FACTOR
+        trees = co2 / TREE_OFFSET if TREE_OFFSET else 0
+
+        if co2 < 100:
+            message = "Low impact"
+        elif co2 < 250:
+            message = "Medium impact"
+        else:
+            message = "High impact"
+
+        self.co2_var.set(f"{co2:.2f} kg CO2")
+        self.trees_var.set(f"{trees:.2f} trees")
+        self.eco_message_var.set(message)
+
+    def show_alerts(self, total_units):
+        if total_units > HIGH_USAGE_THRESHOLD and not self.warning_state["high_units"]:
+            self.warning_state["high_units"] = True
+            messagebox.showwarning("High Usage Alert", "Total consumption exceeded 200 units.")
+        if total_units <= HIGH_USAGE_THRESHOLD:
+            self.warning_state["high_units"] = False
+
+        overused = [item for item in self.appliance_rows if item["units"] > HIGH_APPLIANCE_THRESHOLD]
+        if overused and not self.warning_state["high_appliance"]:
+            self.warning_state["high_appliance"] = True
+            appliance = max(overused, key=lambda item: item["units"])
+            messagebox.showwarning(
+                "Appliance Alert",
+                f"{appliance['appliance']} is consuming {appliance['units']:.2f} kWh. Consider reducing its usage.",
             )
-            st.dataframe(breakdown, use_container_width=True, hide_index=True)
+        if not overused:
+            self.warning_state["high_appliance"] = False
 
-        chart_data = build_chart_data(m1, m2, m3, final_prediction)
+    def amount_to_words(self, amount):
+        if amount == 0:
+            return "Zero rupees only"
 
-        chart_col1, chart_col2 = st.columns(2)
+        ones = [
+            "",
+            "one",
+            "two",
+            "three",
+            "four",
+            "five",
+            "six",
+            "seven",
+            "eight",
+            "nine",
+            "ten",
+            "eleven",
+            "twelve",
+            "thirteen",
+            "fourteen",
+            "fifteen",
+            "sixteen",
+            "seventeen",
+            "eighteen",
+            "nineteen",
+        ]
+        tens = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"]
 
-        with chart_col1:
-            st.markdown("### 📈 Consumption Trend")
-            line_chart = px.line(
-                chart_data,
-                x="Period",
-                y="Units",
-                markers=True,
-                title="Month-wise Consumption Trend",
-            )
-            line_chart.update_traces(line=dict(width=4), marker=dict(size=10))
-            st.plotly_chart(line_chart, use_container_width=True)
+        def two_digits(number):
+            if number < 20:
+                return ones[number]
+            return tens[number // 10] + ("" if number % 10 == 0 else f" {ones[number % 10]}")
 
-        with chart_col2:
-            st.markdown("### 📊 Units Comparison")
-            bar_chart = px.bar(
-                chart_data,
-                x="Period",
-                y="Units",
-                color="Period",
-                title="Actual vs Predicted Units",
-            )
-            st.plotly_chart(bar_chart, use_container_width=True)
+        def three_digits(number):
+            hundred = number // 100
+            remainder = number % 100
+            parts = []
+            if hundred:
+                parts.append(f"{ones[hundred]} hundred")
+            if remainder:
+                parts.append(two_digits(remainder))
+            return " ".join(parts)
 
-        st.markdown("### 💡 Energy Saving Suggestions")
-        st.write("- Turn off unused appliances and standby devices.")
-        st.write("- Reduce AC usage during hot afternoons.")
-        st.write("- Track monthly consumption to avoid high bill slabs.")
-else:
-    st.markdown("## 📌 Output will appear here after prediction")
-    st.caption("Fill all three month values and click Predict.")
+        chunks = []
+        if amount >= 1000:
+            chunks.append(f"{three_digits(amount // 1000)} thousand")
+            amount %= 1000
+        if amount > 0:
+            chunks.append(three_digits(amount))
+        return f"{' '.join(chunk.strip() for chunk in chunks if chunk).title()} rupees only"
+
+    def appliance_chart_data(self):
+        names = [item["appliance"] for item in self.appliance_rows]
+        units = [item["units"] for item in self.appliance_rows]
+        return names, units
+
+    def build_bar_figure(self):
+        figure = Figure(figsize=(4.1, 3.3), dpi=100)
+        axis = figure.add_subplot(111)
+        names, units = self.appliance_chart_data()
+        if units:
+            axis.bar(names, units, color="#5d9c77")
+        else:
+            axis.text(0.5, 0.5, "No appliance data yet", ha="center", va="center", transform=axis.transAxes)
+        axis.set_title("Appliance vs Units")
+        axis.tick_params(axis="x", rotation=20)
+        axis.set_ylabel("kWh")
+        figure.tight_layout()
+        return figure
+
+    def build_pie_figure(self):
+        figure = Figure(figsize=(4.1, 3.3), dpi=100)
+        axis = figure.add_subplot(111)
+        names, units = self.appliance_chart_data()
+        if units and sum(units) > 0:
+            axis.pie(units, labels=names, autopct="%1.1f%%", startangle=90)
+        else:
+            axis.text(0.5, 0.5, "No appliance data yet", ha="center", va="center", transform=axis.transAxes)
+        axis.set_title("Consumption Distribution")
+        figure.tight_layout()
+        return figure
+
+    def build_bill_figure(self):
+        figure = Figure(figsize=(4.1, 3.3), dpi=100)
+        axis = figure.add_subplot(111)
+        try:
+            energy = float(self.energy_charge_var.get().replace("Rs", "").strip())
+            duty = float(self.duty_var.get().replace("Rs", "").strip())
+            fixed = FIXED_CHARGE
+        except ValueError:
+            energy, duty, fixed = 0.0, 0.0, FIXED_CHARGE
+
+        values = [energy, duty, fixed]
+        labels = ["Energy", "Duty", "Fixed"]
+        if sum(values) > 0:
+            axis.pie(values, labels=labels, autopct="%1.1f%%", startangle=90)
+        else:
+            axis.text(0.5, 0.5, "No bill data yet", ha="center", va="center", transform=axis.transAxes)
+        axis.set_title("Bill Breakdown")
+        figure.tight_layout()
+        return figure
+
+    def build_co2_figure(self):
+        figure = Figure(figsize=(4.1, 3.3), dpi=100)
+        axis = figure.add_subplot(111)
+        total_units = self.get_total_units()
+        co2 = total_units * CO2_FACTOR
+        saved = max(0, 300 - co2)
+        values = [co2, saved]
+        labels = ["CO2 Emission", "Low Impact Gap"]
+        if sum(values) > 0:
+            axis.pie(values, labels=labels, autopct="%1.1f%%", startangle=90)
+        else:
+            axis.text(0.5, 0.5, "No CO2 data yet", ha="center", va="center", transform=axis.transAxes)
+        axis.set_title("CO2 Distribution")
+        figure.tight_layout()
+        return figure
+
+    def update_charts(self):
+        figures = [
+            self.build_bar_figure(),
+            self.build_pie_figure(),
+            self.build_bill_figure(),
+        ]
+
+        for canvas_widget in self.chart_canvases:
+            canvas_widget.get_tk_widget().destroy()
+        self.chart_canvases.clear()
+
+        for host, figure in zip(self.chart_hosts, figures):
+            canvas_widget = FigureCanvasTkAgg(figure, master=host)
+            canvas_widget.draw()
+            canvas_widget.get_tk_widget().pack(fill="both", expand=True)
+            self.chart_canvases.append(canvas_widget)
+
+    def show_chart_popup(self, title, figure):
+        window = tk.Toplevel(self.root)
+        window.title(title)
+        window.geometry("760x520")
+        window.configure(bg="#ffffff")
+        canvas_widget = FigureCanvasTkAgg(figure, master=window)
+        canvas_widget.draw()
+        canvas_widget.get_tk_widget().pack(fill="both", expand=True, padx=12, pady=12)
+
+    def show_bar_chart_popup(self):
+        self.show_chart_popup("Appliance vs Units", self.build_bar_figure())
+
+    def show_pie_chart_popup(self):
+        self.show_chart_popup("Consumption Distribution", self.build_pie_figure())
+
+    def show_bill_chart_popup(self):
+        self.show_chart_popup("Bill Breakdown", self.build_bill_figure())
+
+    def export_pdf(self):
+        path = filedialog.asksaveasfilename(
+            defaultextension=".pdf",
+            filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")],
+            title="Export Bill PDF",
+        )
+        if not path:
+            return
+
+        pdf = pdf_canvas.Canvas(path, pagesize=A4)
+        width, height = A4
+
+        pdf.setFont("Helvetica-Bold", 18)
+        pdf.drawString(40, height - 50, "Electricity Consumption Monitor")
+        pdf.setFont("Helvetica-Bold", 12)
+        pdf.drawString(40, height - 85, "Billing Summary")
+
+        lines = [
+            f"Mode: {self.mode_var.get().title()}",
+            f"Total Units: {self.total_units_var.get()}",
+            f"Energy Charges: {self.energy_charge_var.get()}",
+            f"Electricity Duty: {self.duty_var.get()}",
+            f"Fixed Charge: {self.fixed_charge_var.get()}",
+            f"Final Bill: {self.final_bill_var.get()}",
+            f"Amount in Words: {self.amount_words_var.get()}",
+            f"CO2 Emission: {self.co2_var.get()}",
+            f"Trees Required: {self.trees_var.get()}",
+            f"Eco Impact: {self.eco_message_var.get()}",
+        ]
+
+        pdf.setFont("Helvetica", 11)
+        y = height - 110
+        for line in lines:
+            pdf.drawString(40, y, line)
+            y -= 18
+
+        y -= 10
+        pdf.setFont("Helvetica-Bold", 12)
+        pdf.drawString(40, y, "Appliance Details")
+        y -= 20
+        pdf.setFont("Helvetica", 10)
+        for item in self.appliance_rows:
+            row = f"{item['appliance']} | {item['power']}W | {item['hours']}h/day | {item['days']} days | {item['units']:.2f} kWh"
+            pdf.drawString(40, y, row)
+            y -= 16
+            if y < 60:
+                pdf.showPage()
+                y = height - 50
+                pdf.setFont("Helvetica", 10)
+
+        pdf.save()
+        messagebox.showinfo("Export PDF", "PDF bill exported successfully.")
+
+
+def main():
+    root = tk.Tk()
+    ElectricityConsumptionMonitor(root)
+    root.mainloop()
+
+
+if __name__ == "__main__":
+    main()

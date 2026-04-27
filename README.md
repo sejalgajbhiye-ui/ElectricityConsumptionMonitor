@@ -1,18 +1,15 @@
-# Electricity Consumption & Bill Prediction System
+# Electricity Consumption Monitor
 
-Python Streamlit app for predicting electricity consumption and estimated bills using the last three months of usage plus Pune weather forecast data.
+Desktop Python application built with Tkinter for calculating appliance-wise electricity consumption and estimated bills.
 
 ## Run
 
 ```powershell
-python -m pip install streamlit pandas plotly requests
-python -m streamlit run app.py
+python app.py
 ```
 
-## Included
+## Notes
 
-- Streamlit UI
-- pandas data handling
-- Plotly visualizations
-- Pune 7-day forecast from Open-Meteo
-- Electricity bill prediction with slab pricing
+- Requires Python with Tkinter support
+- Uses matplotlib for charts
+- Stores appliance data in memory only
