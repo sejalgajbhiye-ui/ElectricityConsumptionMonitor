@@ -1,12 +1,20 @@
+import hashlib
 import math
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
+import mysql.connector
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
+from mysql.connector import Error
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas as pdf_canvas
 
+
+DB_HOST = "localhost"
+DB_USER = "root"
+DB_PASSWORD = "shru@1234"
+DB_NAME = "electricity_app"
 
 APPLIANCE_WATTAGE = {
     "Fan": 75,
@@ -24,6 +32,113 @@ CO2_FACTOR = 0.82
 TREE_OFFSET = 21.0
 HIGH_USAGE_THRESHOLD = 200.0
 HIGH_APPLIANCE_THRESHOLD = 120.0
+
+
+def get_connection():
+    """Create a connection to the application database."""
+    return mysql.connector.connect(
+        host=DB_HOST,
+        user=DB_USER,
+        password=DB_PASSWORD,
+        database=DB_NAME,
+    )
+
+
+def initialize_database():
+    """Create the database and users table if they do not already exist."""
+    connection = None
+    cursor = None
+    try:
+        connection = mysql.connector.connect(
+            host=DB_HOST,
+            user=DB_USER,
+            password=DB_PASSWORD,
+        )
+        cursor = connection.cursor()
+        cursor.execute(f"CREATE DATABASE IF NOT EXISTS {DB_NAME}")
+        cursor.execute(f"USE {DB_NAME}")
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                username VARCHAR(255) UNIQUE,
+                password VARCHAR(255)
+            )
+            """
+        )
+        connection.commit()
+        return True
+    except Error as error:
+        messagebox.showerror("Database Error", f"Could not initialize database.\n{error}")
+        return False
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
+
+
+def hash_password(password):
+    """Hash the password with SHA-256 before saving or comparing it."""
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+
+def register(username, password):
+    """Register a new user with a hashed password."""
+    if not username.strip() or not password.strip():
+        messagebox.showerror("Register", "Username and password are required.")
+        return False
+
+    connection = None
+    cursor = None
+    try:
+        connection = get_connection()
+        cursor = connection.cursor()
+        cursor.execute(
+            "INSERT INTO users (username, password) VALUES (%s, %s)",
+            (username.strip(), hash_password(password)),
+        )
+        connection.commit()
+        messagebox.showinfo("Register", "Registration successful. You can now log in.")
+        return True
+    except mysql.connector.IntegrityError:
+        messagebox.showerror("Register", "This username already exists. Please choose another one.")
+        return False
+    except Error as error:
+        messagebox.showerror("Register", f"Could not register user.\n{error}")
+        return False
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
+
+
+def login(username, password):
+    """Check whether a user exists and the hashed password matches."""
+    if not username.strip() or not password.strip():
+        return False
+
+    connection = None
+    cursor = None
+    try:
+        connection = get_connection()
+        cursor = connection.cursor()
+        cursor.execute(
+            "SELECT password FROM users WHERE username = %s",
+            (username.strip(),),
+        )
+        result = cursor.fetchone()
+        if not result:
+            return False
+        return result[0] == hash_password(password)
+    except Error:
+        return False
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
 
 
 class ToolTip:
@@ -61,9 +176,89 @@ class ToolTip:
             self.tip_window = None
 
 
-class ElectricityConsumptionMonitor:
+class LoginWindow:
     def __init__(self, root):
         self.root = root
+        self.root.title("Login - Electricity Consumption Monitor")
+        self.root.geometry("460x360")
+        self.root.minsize(420, 330)
+        self.root.configure(bg="#eef5f1")
+
+        self.username_var = tk.StringVar()
+        self.password_var = tk.StringVar()
+        self.show_password_var = tk.BooleanVar(value=False)
+
+        self._build_ui()
+
+    def _build_ui(self):
+        wrapper = ttk.Frame(self.root, padding=22)
+        wrapper.pack(fill="both", expand=True)
+
+        card = ttk.Frame(wrapper, padding=18)
+        card.pack(fill="both", expand=True)
+
+        ttk.Label(card, text="Electricity Consumption Monitor", font=("Segoe UI", 19, "bold"), foreground="#173f35").pack(anchor="w")
+        ttk.Label(
+            card,
+            text="Log in or register to access the local desktop electricity dashboard.",
+            font=("Segoe UI", 10),
+            foreground="#55766a",
+        ).pack(anchor="w", pady=(4, 18))
+
+        ttk.Label(card, text="Username").pack(anchor="w")
+        username_entry = ttk.Entry(card, textvariable=self.username_var)
+        username_entry.pack(fill="x", pady=(6, 14))
+
+        ttk.Label(card, text="Password").pack(anchor="w")
+        self.password_entry = ttk.Entry(card, textvariable=self.password_var, show="*")
+        self.password_entry.pack(fill="x", pady=(6, 8))
+
+        ttk.Checkbutton(
+            card,
+            text="Show Password",
+            variable=self.show_password_var,
+            command=self.toggle_password,
+        ).pack(anchor="w", pady=(0, 18))
+
+        button_row = ttk.Frame(card)
+        button_row.pack(fill="x")
+        button_row.columnconfigure((0, 1), weight=1)
+
+        login_button = ttk.Button(button_row, text="Login", command=self.handle_login)
+        login_button.grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        register_button = ttk.Button(button_row, text="Register", command=self.handle_register)
+        register_button.grid(row=0, column=1, sticky="ew", padx=(6, 0))
+
+        ToolTip(login_button, "Check username and password, then open the main monitor.")
+        ToolTip(register_button, "Create a new user in the MySQL users table.")
+
+    def toggle_password(self):
+        self.password_entry.configure(show="" if self.show_password_var.get() else "*")
+
+    def handle_register(self):
+        username = self.username_var.get().strip()
+        password = self.password_var.get()
+        register(username, password)
+
+    def handle_login(self):
+        username = self.username_var.get().strip()
+        password = self.password_var.get()
+
+        if not username or not password:
+            messagebox.showerror("Login", "Please enter both username and password.")
+            return
+
+        if login(username, password):
+            self.root.destroy()
+            launch_main_app(username)
+        else:
+            messagebox.showerror("Login Failed", "Invalid username or password.")
+
+
+class ElectricityConsumptionMonitor:
+    def __init__(self, root, username):
+        self.root = root
+        self.username = username
         self.root.title("Electricity Consumption Monitor")
         self.root.geometry("1340x900")
         self.root.minsize(1180, 760)
@@ -143,9 +338,15 @@ class ElectricityConsumptionMonitor:
         ttk.Label(header, text="Electricity Consumption Monitor", style="Header.TLabel").pack(anchor="w")
         ttk.Label(
             header,
-            text="A bill-style desktop application with appliance tracking, meter mode, billing, insights, CO2 impact, and exports.",
+            text=f"Welcome, {self.username}. A bill-style desktop application with appliance tracking, meter mode, billing, insights, CO2 impact, and exports.",
             style="SubHeader.TLabel",
         ).pack(anchor="w", pady=(4, 0))
+
+        top_actions = ttk.Frame(wrapper, style="App.TFrame")
+        top_actions.pack(fill="x", pady=(0, 10))
+        logout_button = ttk.Button(top_actions, text="Logout", command=self.logout)
+        logout_button.pack(side="right")
+        ToolTip(logout_button, "Close the dashboard and return to the login window.")
 
         mode_card = self._make_card(wrapper)
         mode_card.pack(fill="x", pady=(0, 10))
@@ -311,9 +512,7 @@ class ElectricityConsumptionMonitor:
         self._summary_row(info_frame, 1, "Trees Required", self.trees_var)
         self._summary_row(info_frame, 2, "Eco Message", self.eco_message_var, emphasize=True)
 
-        note = (
-            "Environmental estimate uses 1 kWh ≈ 0.82 kg CO2 and 1 tree ≈ 21 kg CO2 per year."
-        )
+        note = "Environmental estimate uses 1 kWh ~= 0.82 kg CO2 and 1 tree ~= 21 kg CO2 per year."
         ttk.Label(self.impact_card, text=note, style="Muted.TLabel", wraplength=360, justify="left").pack(anchor="w", pady=(12, 0))
 
     def _build_tips_section(self):
@@ -347,21 +546,21 @@ class ElectricityConsumptionMonitor:
     def _build_chart_section(self):
         ttk.Label(self.chart_card, text="CONSUMPTION VISUALIZATION", style="Section.TLabel").pack(fill="x", pady=(0, 10))
 
-        action_row = ttk.Frame(self.chart_card, style="Card.TFrame")
-        action_row.pack(fill="x", pady=(0, 10))
-        action_row.columnconfigure((0, 1, 2), weight=1)
-        ttk.Button(action_row, text="Bar Chart", command=self.show_bar_chart_popup).grid(row=0, column=0, sticky="ew", padx=(0, 6))
-        ttk.Button(action_row, text="Pie Chart", command=self.show_pie_chart_popup).grid(row=0, column=1, sticky="ew", padx=6)
-        ttk.Button(action_row, text="Bill Breakdown", command=self.show_bill_chart_popup).grid(row=0, column=2, sticky="ew", padx=(6, 0))
-
         chart_wrap = ttk.Frame(self.chart_card, style="Card.TFrame")
-        chart_wrap.pack(fill="both", expand=True)
-        chart_wrap.columnconfigure((0, 1, 2), weight=1)
+        chart_wrap.pack(fill="both", expand=True, pady=(0, 4))
+        chart_wrap.columnconfigure((0, 1), weight=1)
+        chart_wrap.rowconfigure((0, 1), weight=1)
 
         self.chart_hosts = []
-        for column, title in enumerate(("Appliance vs Units", "Consumption Distribution", "Bill Breakdown")):
+        chart_titles = [
+            ("Appliance vs Units", 0, 0),
+            ("Consumption Distribution", 0, 1),
+            ("Bill Breakdown", 1, 0),
+            ("CO2 Distribution", 1, 1),
+        ]
+        for title, row, column in chart_titles:
             frame = ttk.LabelFrame(chart_wrap, text=title, padding=8)
-            frame.grid(row=0, column=column, sticky="nsew", padx=6)
+            frame.grid(row=row, column=column, sticky="nsew", padx=6, pady=6)
             host = ttk.Frame(frame, style="Card.TFrame")
             host.pack(fill="both", expand=True)
             self.chart_hosts.append(host)
@@ -764,6 +963,7 @@ class ElectricityConsumptionMonitor:
             self.build_bar_figure(),
             self.build_pie_figure(),
             self.build_bill_figure(),
+            self.build_co2_figure(),
         ]
 
         for canvas_widget in self.chart_canvases:
@@ -775,24 +975,6 @@ class ElectricityConsumptionMonitor:
             canvas_widget.draw()
             canvas_widget.get_tk_widget().pack(fill="both", expand=True)
             self.chart_canvases.append(canvas_widget)
-
-    def show_chart_popup(self, title, figure):
-        window = tk.Toplevel(self.root)
-        window.title(title)
-        window.geometry("760x520")
-        window.configure(bg="#ffffff")
-        canvas_widget = FigureCanvasTkAgg(figure, master=window)
-        canvas_widget.draw()
-        canvas_widget.get_tk_widget().pack(fill="both", expand=True, padx=12, pady=12)
-
-    def show_bar_chart_popup(self):
-        self.show_chart_popup("Appliance vs Units", self.build_bar_figure())
-
-    def show_pie_chart_popup(self):
-        self.show_chart_popup("Consumption Distribution", self.build_pie_figure())
-
-    def show_bill_chart_popup(self):
-        self.show_chart_popup("Bill Breakdown", self.build_bill_figure())
 
     def export_pdf(self):
         path = filedialog.asksaveasfilename(
@@ -808,11 +990,16 @@ class ElectricityConsumptionMonitor:
 
         pdf.setFont("Helvetica-Bold", 18)
         pdf.drawString(40, height - 50, "Electricity Consumption Monitor")
-        pdf.setFont("Helvetica-Bold", 12)
-        pdf.drawString(40, height - 85, "Billing Summary")
+        pdf.setFont("Helvetica", 11)
+        pdf.drawString(40, height - 72, f"User: {self.username}")
+        pdf.drawString(40, height - 90, f"Mode: {self.mode_var.get().title()}")
 
-        lines = [
-            f"Mode: {self.mode_var.get().title()}",
+        y = height - 125
+        pdf.setFont("Helvetica-Bold", 12)
+        pdf.drawString(40, y, "Bill Summary")
+        y -= 22
+        pdf.setFont("Helvetica", 10)
+        summary_lines = [
             f"Total Units: {self.total_units_var.get()}",
             f"Energy Charges: {self.energy_charge_var.get()}",
             f"Electricity Duty: {self.duty_var.get()}",
@@ -821,25 +1008,24 @@ class ElectricityConsumptionMonitor:
             f"Amount in Words: {self.amount_words_var.get()}",
             f"CO2 Emission: {self.co2_var.get()}",
             f"Trees Required: {self.trees_var.get()}",
-            f"Eco Impact: {self.eco_message_var.get()}",
+            f"Eco Message: {self.eco_message_var.get()}",
+            f"Highest Appliance: {self.highest_appliance_var.get()}",
+            f"Usage Change: {self.usage_change_var.get()}",
         ]
-
-        pdf.setFont("Helvetica", 11)
-        y = height - 110
-        for line in lines:
+        for line in summary_lines:
             pdf.drawString(40, y, line)
-            y -= 18
+            y -= 16
 
-        y -= 10
+        y -= 8
         pdf.setFont("Helvetica-Bold", 12)
         pdf.drawString(40, y, "Appliance Details")
         y -= 20
         pdf.setFont("Helvetica", 10)
         for item in self.appliance_rows:
-            row = f"{item['appliance']} | {item['power']}W | {item['hours']}h/day | {item['days']} days | {item['units']:.2f} kWh"
-            pdf.drawString(40, y, row)
+            text = f"{item['appliance']} | {item['power']}W | {item['hours']}h/day | {item['days']} days | {item['units']:.2f} kWh"
+            pdf.drawString(40, y, text)
             y -= 16
-            if y < 60:
+            if y < 70:
                 pdf.showPage()
                 y = height - 50
                 pdf.setFont("Helvetica", 10)
@@ -847,11 +1033,28 @@ class ElectricityConsumptionMonitor:
         pdf.save()
         messagebox.showinfo("Export PDF", "PDF bill exported successfully.")
 
+    def logout(self):
+        if not messagebox.askyesno("Logout", "Log out and return to the login window?"):
+            return
+        self.root.destroy()
+        launch_login_window()
+
+
+def launch_main_app(username):
+    root = tk.Tk()
+    ElectricityConsumptionMonitor(root, username)
+    root.mainloop()
+
+
+def launch_login_window():
+    root = tk.Tk()
+    LoginWindow(root)
+    root.mainloop()
+
 
 def main():
-    root = tk.Tk()
-    ElectricityConsumptionMonitor(root)
-    root.mainloop()
+    if initialize_database():
+        launch_login_window()
 
 
 if __name__ == "__main__":
