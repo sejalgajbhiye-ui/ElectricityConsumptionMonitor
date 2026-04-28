@@ -826,6 +826,20 @@ class ElectricityConsumptionMonitor:
             efficiency,
             inverter=inverter,
         )
+
+        # CHECK DUPLICATE
+        for index, item in enumerate(self.appliance_rows):
+            if item["appliance"] == appliance:
+                # PREVENT DUPLICATE
+                existing_items = self.tree.get_children()
+                if index < len(existing_items):
+                    existing_row = existing_items[index]
+                    self.tree.selection_set(existing_row)
+                    self.tree.focus(existing_row)
+                    self.tree.see(existing_row)
+                messagebox.showwarning("Duplicate Entry", f"{appliance} is already added to the list.")
+                return
+
         row = {
             "appliance": appliance,
             "power": power,
