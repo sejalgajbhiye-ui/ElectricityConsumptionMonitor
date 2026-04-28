@@ -1,5 +1,6 @@
 import hashlib
 import math
+import random
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
@@ -26,12 +27,22 @@ APPLIANCE_WATTAGE = {
     "Washing Machine": 500,
 }
 
-FIXED_CHARGE = 50.0
+APPLIANCE_EFFICIENCY = {
+    "AC": 0.6,
+    "Fan": 0.9,
+    "TV": 0.8,
+    "LED Bulb": 1.0,
+    "Tube Light": 1.0,
+    "Refrigerator": 0.85,
+    "Washing Machine": 0.75,
+}
+
+FIXED_CHARGE = 115.0
 ELECTRICITY_DUTY_RATE = 0.21
-CO2_FACTOR = 0.82
+CO2_FACTOR = 0.45
 TREE_OFFSET = 21.0
 HIGH_USAGE_THRESHOLD = 200.0
-HIGH_APPLIANCE_THRESHOLD = 120.0
+HIGH_APPLIANCE_THRESHOLD = 150.0
 
 
 def get_connection():
@@ -269,7 +280,9 @@ class ElectricityConsumptionMonitor:
         self.power_var = tk.StringVar(value=str(APPLIANCE_WATTAGE["Fan"]))
         self.hours_var = tk.StringVar(value="1")
         self.days_var = tk.StringVar(value="30")
-        self.appliance_units_var = tk.StringVar(value="0.00 kWh")
+        self.inverter_ac_var = tk.BooleanVar(value=False)
+        self.realistic_units_var = tk.StringVar(value="0.00 kWh")
+        self.appliance_units_var = self.realistic_units_var
 
         self.current_reading_var = tk.StringVar(value="0")
         self.previous_reading_var = tk.StringVar(value="0")
@@ -295,6 +308,7 @@ class ElectricityConsumptionMonitor:
         self.appliance_rows = []
         self.chart_canvases = []
         self.warning_state = {"high_units": False, "high_appliance": False}
+        self.meter_refresh_job = None
 
         self._configure_style()
         self._build_layout()
@@ -391,7 +405,13 @@ class ElectricityConsumptionMonitor:
         self.appliance_mode_frame.pack(fill="x")
         self.appliance_mode_frame.columnconfigure((0, 1, 2, 3, 4), weight=1)
 
-        appliance_headers = ["Appliance", "Power (W)", "Hours / Day", "Days", "Units"]
+        appliance_headers = [
+            "Appliance",
+            "Power (W)",
+            "Hours / Day",
+            "Days",
+            "Realistic Units",
+        ]
         for column, text in enumerate(appliance_headers):
             self._table_cell(self.appliance_mode_frame, 0, column, text, header=True)
 
@@ -406,7 +426,21 @@ class ElectricityConsumptionMonitor:
         self.power_entry = self._entry_cell(self.appliance_mode_frame, 1, 1, self.power_var)
         self.hours_spinbox = self._spinbox_cell(self.appliance_mode_frame, 1, 2, self.hours_var, 0.5, 24, 0.5)
         self.days_spinbox = self._spinbox_cell(self.appliance_mode_frame, 1, 3, self.days_var, 1, 365, 1)
-        self._table_cell(self.appliance_mode_frame, 1, 4, self.appliance_units_var, is_var=True)
+        self._table_cell(self.appliance_mode_frame, 1, 4, self.realistic_units_var, is_var=True)
+
+        ac_options_row = ttk.Frame(self.input_card, style="Card.TFrame")
+        ac_options_row.pack(fill="x", pady=(8, 0))
+        self.inverter_check = ttk.Checkbutton(
+            ac_options_row,
+            text="Inverter AC",
+            variable=self.inverter_ac_var,
+            command=self.update_appliance_preview,
+        )
+        self.inverter_check.pack(side="left")
+        ToolTip(
+            self.inverter_check,
+            "For AC only: after 2 hours, inverter AC uses 40% power and non-inverter AC uses 60%.",
+        )
 
         appliance_buttons = ttk.Frame(self.input_card, style="Card.TFrame")
         appliance_buttons.pack(fill="x", pady=(10, 12))
@@ -430,9 +464,15 @@ class ElectricityConsumptionMonitor:
             "power": "Power (W)",
             "hours": "Hours / Day",
             "days": "Days",
-            "units": "Units (kWh)",
+            "units": "Realistic Units",
         }
-        widths = {"appliance": 180, "power": 110, "hours": 110, "days": 90, "units": 120}
+        widths = {
+            "appliance": 180,
+            "power": 110,
+            "hours": 110,
+            "days": 90,
+            "units": 130,
+        }
         for key in columns:
             self.tree.heading(key, text=headings[key])
             self.tree.column(key, width=widths[key], anchor="center")
@@ -497,8 +537,7 @@ class ElectricityConsumptionMonitor:
         insight_frame = ttk.Frame(self.billing_card, style="Card.TFrame")
         insight_frame.pack(fill="x")
         self._summary_row(insight_frame, 0, "Highest Consuming Appliance", self.highest_appliance_var)
-        self._summary_row(insight_frame, 1, "Usage Change", self.usage_change_var)
-        self._summary_row(insight_frame, 2, "Insight", self.insight_message_var)
+        self._summary_row(insight_frame, 1, "Insight", self.insight_message_var)
 
     def _build_environment_section(self):
         ttk.Label(self.impact_card, text="ENVIRONMENTAL IMPACT", style="Section.TLabel").pack(fill="x", pady=(0, 10))
@@ -512,7 +551,7 @@ class ElectricityConsumptionMonitor:
         self._summary_row(info_frame, 1, "Trees Required", self.trees_var)
         self._summary_row(info_frame, 2, "Eco Message", self.eco_message_var, emphasize=True)
 
-        note = "Environmental estimate uses 1 kWh ~= 0.82 kg CO2 and 1 tree ~= 21 kg CO2 per year."
+        note = "Environmental estimate uses 1 kWh ~= 0.45 kg CO2 and 1 tree ~= 21 kg CO2 per year."
         ttk.Label(self.impact_card, text=note, style="Muted.TLabel", wraplength=360, justify="left").pack(anchor="w", pady=(12, 0))
 
     def _build_tips_section(self):
@@ -553,7 +592,7 @@ class ElectricityConsumptionMonitor:
 
         self.chart_hosts = []
         chart_titles = [
-            ("Appliance vs Units", 0, 0),
+            ("Top Energy Consuming Appliances", 0, 0),
             ("Consumption Distribution", 0, 1),
             ("Bill Breakdown", 1, 0),
             ("CO2 Distribution", 1, 1),
@@ -616,8 +655,10 @@ class ElectricityConsumptionMonitor:
         self.appliance_combo.bind("<<ComboboxSelected>>", self.on_appliance_change)
         for variable in (self.power_var, self.hours_var, self.days_var):
             variable.trace_add("write", self.on_appliance_input_change)
-        for variable in (self.current_reading_var, self.previous_reading_var, self.previous_month_units_var):
-            variable.trace_add("write", self.on_meter_input_change)
+        # FOCUS UPDATE
+        self.current_entry.bind("<FocusOut>", self.on_meter_focus_out)
+        self.previous_entry.bind("<FocusOut>", self.on_meter_focus_out)
+        self.previous_month_entry.bind("<FocusOut>", self.on_meter_focus_out)
 
     def _on_frame_configure(self, _event):
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
@@ -633,30 +674,83 @@ class ElectricityConsumptionMonitor:
         appliance_state = "normal" if appliance_mode else "disabled"
         meter_state = "normal" if not appliance_mode else "disabled"
 
-        for widget in (self.appliance_combo, self.power_entry, self.hours_spinbox, self.days_spinbox):
+        for widget in (
+            self.appliance_combo,
+            self.power_entry,
+            self.hours_spinbox,
+            self.days_spinbox,
+            self.inverter_check,
+        ):
             widget.configure(state=appliance_state)
         self.current_entry.configure(state=meter_state)
         self.previous_entry.configure(state=meter_state)
         self.refresh_all()
 
     def on_appliance_change(self, _event=None):
-        self.power_var.set(str(APPLIANCE_WATTAGE.get(self.appliance_var.get(), "")))
+        appliance = self.appliance_var.get()
+        self.power_var.set(str(APPLIANCE_WATTAGE.get(appliance, "")))
+        if appliance != "AC":
+            self.inverter_ac_var.set(False)
         self.update_appliance_preview()
 
     def on_appliance_input_change(self, *_args):
         self.update_appliance_preview()
 
-    def on_meter_input_change(self, *_args):
+    def on_meter_input_change(self, value):
+        # FIX: prevent cursor jump
+        value = value.strip()
+        if not value:
+            return
+
+        # VALIDATION
+        try:
+            float(value)
+        except ValueError:
+            return
+
+        self._schedule_meter_refresh()
+
+    def on_meter_focus_out(self, _event=None):
+        # FOCUS UPDATE
+        for value in (
+            self.current_reading_var.get(),
+            self.previous_reading_var.get(),
+            self.previous_month_units_var.get(),
+        ):
+            self.on_meter_input_change(value)
+        self.refresh_all()
+
+    def _schedule_meter_refresh(self):
+        # FIX: prevent cursor jump
+        if self.meter_refresh_job:
+            self.root.after_cancel(self.meter_refresh_job)
+
+        # OPTIONAL DEBOUNCE
+        self.meter_refresh_job = self.root.after(250, self._debounced_meter_refresh)
+
+    def _debounced_meter_refresh(self):
+        self.meter_refresh_job = None
+        focused_widget = self.root.focus_get()
+        if focused_widget in (self.current_entry, self.previous_entry, self.previous_month_entry):
+            return
         self.refresh_all()
 
     def update_appliance_preview(self):
         parsed = self.parse_appliance_input(show_errors=False)
         if not parsed:
-            self.appliance_units_var.set("0.00 kWh")
+            self.realistic_units_var.set("0.00 kWh")
             return
-        _, power, hours, days = parsed
-        units = self.calculate_appliance_units(power, hours, days)
-        self.appliance_units_var.set(f"{units:.2f} kWh")
+        appliance, power, hours, days, efficiency, inverter = parsed
+        _, realistic_units = self.calculate_appliance_units(
+            appliance,
+            power,
+            hours,
+            days,
+            efficiency,
+            inverter=inverter,
+            apply_variation=False,
+        )
+        self.realistic_units_var.set(f"{realistic_units:.2f} kWh")
 
     def parse_appliance_input(self, show_errors=True):
         try:
@@ -664,29 +758,96 @@ class ElectricityConsumptionMonitor:
             power = float(self.power_var.get())
             hours = float(self.hours_var.get())
             days = int(float(self.days_var.get()))
+            efficiency = APPLIANCE_EFFICIENCY.get(appliance, 1.0)
+            inverter = self.inverter_ac_var.get()
             if not appliance:
                 raise ValueError("Please select an appliance.")
             if power <= 0 or hours <= 0 or days <= 0:
                 raise ValueError("Power, hours, and days must be greater than 0.")
-            return appliance, power, hours, days
+            return appliance, power, hours, days, efficiency, inverter
         except ValueError as error:
             if show_errors:
                 messagebox.showerror("Invalid Appliance Input", str(error))
             return None
 
-    def calculate_appliance_units(self, power, hours, days):
+    def calculate_theoretical_units(self, power, hours, days):
+        """Classic full-power estimate kept for side-by-side comparison."""
         return (power * hours * days) / 1000
+
+    def calculate_ac_units(self, power, hours, days, inverter=False, apply_variation=True):
+        """
+        AC runs at full power for the first 2 hours, then at reduced power.
+        Inverter AC cools more efficiently after stabilization.
+        """
+        full_power_hours = min(hours, 2)
+        reduced_hours = max(hours - 2, 0)
+        reduced_factor = 0.4 if inverter else 0.6
+
+        daily_wh = (power * full_power_hours) + (power * reduced_factor * reduced_hours)
+        units = (daily_wh * days) / 1000
+
+        if apply_variation:
+            units *= random.uniform(0.9, 1.1)
+        return units
+
+    def calculate_appliance_units(self, appliance, power, hours, days, efficiency_factor, inverter=False, apply_variation=True):
+        """
+        Return both the old theoretical estimate and a more realistic estimate.
+        Realistic usage applies appliance efficiency and AC cooldown behavior.
+        """
+        theoretical_units = self.calculate_theoretical_units(power, hours, days)
+
+        if appliance == "AC":
+            realistic_units = self.calculate_ac_units(
+                power,
+                hours,
+                days,
+                inverter=inverter,
+                apply_variation=apply_variation,
+            )
+        else:
+            realistic_units = (power * hours * days * efficiency_factor) / 1000
+            if apply_variation:
+                realistic_units *= random.uniform(0.9, 1.1)
+
+        return theoretical_units, realistic_units
 
     def add_appliance(self):
         parsed = self.parse_appliance_input(show_errors=True)
         if not parsed:
             return
 
-        appliance, power, hours, days = parsed
-        units = self.calculate_appliance_units(power, hours, days)
-        row = {"appliance": appliance, "power": power, "hours": hours, "days": days, "units": units}
+        appliance, power, hours, days, efficiency, inverter = parsed
+        theoretical_units, realistic_units = self.calculate_appliance_units(
+            appliance,
+            power,
+            hours,
+            days,
+            efficiency,
+            inverter=inverter,
+        )
+        row = {
+            "appliance": appliance,
+            "power": power,
+            "hours": hours,
+            "days": days,
+            "efficiency": efficiency,
+            "theoretical_units": theoretical_units,
+            "units": realistic_units,
+            "inverter": inverter,
+        }
         self.appliance_rows.append(row)
-        self.tree.insert("", "end", values=(appliance, f"{power:.0f}", f"{hours:.1f}", days, f"{units:.2f}"))
+        self.tree.insert(
+            "",
+            "end",
+            values=(
+                appliance,
+                f"{power:.0f}",
+                f"{hours:.1f}",
+                days,
+                f"{realistic_units:.2f}",
+            ),
+        )
         self.refresh_all()
 
     def remove_selected(self):
@@ -715,6 +876,8 @@ class ElectricityConsumptionMonitor:
         self.power_var.set(str(APPLIANCE_WATTAGE["Fan"]))
         self.hours_var.set("1")
         self.days_var.set("30")
+        self.inverter_ac_var.set(False)
+        self.realistic_units_var.set("0.00 kWh")
         self.current_reading_var.set("0")
         self.previous_reading_var.set("0")
         self.previous_month_units_var.set("0")
@@ -766,7 +929,7 @@ class ElectricityConsumptionMonitor:
         self.duty_var.set(f"Rs {duty:.2f}")
         self.fixed_charge_var.set(f"Rs {FIXED_CHARGE:.2f}")
         self.final_bill_var.set(f"Rs {final_bill:.2f}")
-        self.amount_words_var.set(self.amount_to_words(int(round(final_bill))))
+        self.amount_words_var.set(self.amount_to_words(int(final_bill)))
 
         self.update_insights(total_units)
         self.update_environment(total_units)
@@ -891,20 +1054,27 @@ class ElectricityConsumptionMonitor:
             chunks.append(three_digits(amount))
         return f"{' '.join(chunk.strip() for chunk in chunks if chunk).title()} rupees only"
 
-    def appliance_chart_data(self):
-        names = [item["appliance"] for item in self.appliance_rows]
-        units = [item["units"] for item in self.appliance_rows]
+    def appliance_chart_data(self, top_n=None):
+        # Sort by highest unit consumption so charts can focus on the biggest loads.
+        sorted_rows = sorted(self.appliance_rows, key=lambda item: item["units"], reverse=True)
+        if top_n is not None:
+            sorted_rows = sorted_rows[:top_n]
+
+        names = [item["appliance"] for item in sorted_rows]
+        units = [item["units"] for item in sorted_rows]
         return names, units
 
     def build_bar_figure(self):
         figure = Figure(figsize=(4.1, 3.3), dpi=100)
         axis = figure.add_subplot(111)
-        names, units = self.appliance_chart_data()
+        names, units = self.appliance_chart_data(top_n=3)
         if units:
-            axis.bar(names, units, color="#5d9c77")
+            colors = ["#d9534f"] + ["#5d9c77"] * (len(units) - 1)
+            bars = axis.bar(names, units, color=colors)
+            axis.bar_label(bars, fmt="%.2f", padding=3, fontsize=9)
         else:
             axis.text(0.5, 0.5, "No appliance data yet", ha="center", va="center", transform=axis.transAxes)
-        axis.set_title("Appliance vs Units")
+        axis.set_title("Top 3 Energy Consuming Appliances")
         axis.tick_params(axis="x", rotation=20)
         axis.set_ylabel("kWh")
         figure.tight_layout()
@@ -915,10 +1085,13 @@ class ElectricityConsumptionMonitor:
         axis = figure.add_subplot(111)
         names, units = self.appliance_chart_data()
         if units and sum(units) > 0:
-            axis.pie(units, labels=names, autopct="%1.1f%%", startangle=90)
+            bars = axis.bar(names, units, color=["#6fa8dc", "#93c47d", "#f6b26b", "#8e7cc3", "#76a5af", "#c27ba0", "#ffd966"])
+            axis.bar_label(bars, fmt="%.1f", padding=3, fontsize=9)
         else:
             axis.text(0.5, 0.5, "No appliance data yet", ha="center", va="center", transform=axis.transAxes)
         axis.set_title("Consumption Distribution")
+        axis.set_ylabel("kWh")
+        axis.tick_params(axis="x", rotation=20)
         figure.tight_layout()
         return figure
 
